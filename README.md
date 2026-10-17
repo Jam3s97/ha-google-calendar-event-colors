@@ -14,14 +14,7 @@ A custom version of Home Assistant's built-in Google Calendar (`google`) integra
 
 `custom_components/google/` was copied from [home-assistant/core](https://github.com/home-assistant/core/tree/2026.10.1/homeassistant/components/google) at tag `2026.10.1`. Commit `6ce6cd2` holds that copy unchanged, so `git diff 6ce6cd2 -- custom_components/google` shows everything this project changes.
 
-Changes needed to run as a custom integration:
-
-- `manifest.json`: adds `version` and `issue_tracker`, and points `documentation` and `codeowners` at this repo. Requirements use a range from core's version up to the next major (for example `gcal-sync>=9.2.0,<10`), because hassfest rejects exact pins on packages Home Assistant already depends on.
-- `translations/en.json`: generated from core's `strings.json`, with its `[%key:...%]` references filled in. Custom integrations only load `translations/`.
-- Tests (`tests/components/google/`) import from `custom_components.google` and use [`pytest-homeassistant-custom-component`](https://github.com/MatthewFlamm/pytest-homeassistant-custom-component) in place of core's test helpers.
-- `.ruff.toml` and `tests/ruff.toml` are core's ruff configuration from the same tag.
-
-Upgrading Home Assistant: re-copy from the matching core tag deliberately, then re-apply this project's diff.
+Every difference from core, and why it was made, is listed in [DIFFERENCES_FROM_CORE.md](DIFFERENCES_FROM_CORE.md), along with the steps for upgrading to a new core version.
 
 ## CI
 
