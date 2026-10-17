@@ -13,18 +13,17 @@ from oauth2client.client import OAuth2Credentials
 import pytest
 import yaml
 
+from custom_components.google import DOMAIN
 from homeassistant.components.application_credentials import (
     DOMAIN as APPLICATION_CREDENTIALS_DOMAIN,
     ClientCredential,
     async_import_client_credential,
 )
-from homeassistant.components.google import DOMAIN
 from homeassistant.core import HomeAssistant
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
-
-from tests.common import MockConfigEntry
-from tests.test_util.aiohttp import AiohttpClientMocker
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 
 type ApiResult = Callable[[dict[str, Any]], None]
 type ComponentSetup = Callable[[], Awaitable[bool]]
@@ -163,7 +162,7 @@ def mock_calendars_yaml(
     mocked_open_function = mock_open(
         read_data=yaml.dump(calendars_config) if calendars_config else None
     )
-    with patch("homeassistant.components.google.open", mocked_open_function):
+    with patch("custom_components.google.open", mocked_open_function):
         yield mocked_open_function
 
 

@@ -14,9 +14,9 @@ from freezegun.api import FrozenDateTimeFactory
 import probatio
 import pytest
 
-from homeassistant.components.google import DOMAIN
-from homeassistant.components.google.calendar import SERVICE_CREATE_EVENT
-from homeassistant.components.google.const import CONF_CALENDAR_ACCESS
+from custom_components.google import DOMAIN
+from custom_components.google.calendar import SERVICE_CREATE_EVENT
+from custom_components.google.const import CONF_CALENDAR_ACCESS
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.const import ATTR_FRIENDLY_NAME, STATE_OFF
 from homeassistant.core import HomeAssistant, State
@@ -27,6 +27,8 @@ from homeassistant.helpers.config_entry_oauth2_flow import (
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 from homeassistant.util.dt import UTC, utcnow
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 
 from .conftest import (
     CALENDAR_ID,
@@ -37,9 +39,6 @@ from .conftest import (
     ApiResult,
     ComponentSetup,
 )
-
-from tests.common import MockConfigEntry
-from tests.test_util.aiohttp import AiohttpClientMocker
 
 EXPIRED_TOKEN_TIMESTAMP = datetime.datetime(2022, 4, 8).timestamp()
 
@@ -195,7 +194,7 @@ async def test_calendar_yaml_error(
     mock_calendars_list({"items": [test_api_calendar]})
     mock_events_list({})
 
-    with patch("homeassistant.components.google.open", side_effect=FileNotFoundError()):
+    with patch("custom_components.google.open", side_effect=FileNotFoundError()):
         assert await component_setup()
 
     assert not hass.states.get(TEST_YAML_ENTITY)
