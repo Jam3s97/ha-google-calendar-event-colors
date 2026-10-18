@@ -6,18 +6,24 @@ from typing import Any
 from unittest.mock import patch
 import urllib
 
+from gcal_sync.auth import API_BASE_URL
 from gcal_sync.model import CalendarBasic, Event
 import pytest
 
 from custom_components.google.colours import OTHER, ColourSplit
 from custom_components.google.const import CONF_SPLIT_CALENDARS, DOMAIN
+from homeassistant.components.calendar import CalendarEntityFeature
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import MockConfigEntry
-from pytest_homeassistant_custom_component.typing import ClientSessionGenerator
+from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
+from pytest_homeassistant_custom_component.typing import (
+    ClientSessionGenerator,
+    WebSocketGenerator,
+)
 
 from .conftest import (
     CALENDAR_ID,
@@ -189,7 +195,12 @@ async def test_colour_entities(
 
     state = hass.states.get(f"{TEST_API_ENTITY}_child1")
     assert state.name == "We are, we are, a... test calendar Child1"
-    # Colour entities are read-only until creating events is implemented
+    assert state.attributes["supported_features"] == (
+        CalendarEntityFeature.CREATE_EVENT | CalendarEntityFeature.DELETE_EVENT
+    )
+    # Events created with no colour land on Everyone (the default colour), not
+    # Other, so Other can't create events
+    state = hass.states.get(f"{TEST_API_ENTITY}_other")
     assert state.attributes.get("supported_features", 0) == 0
 
 
@@ -320,3 +331,141 @@ async def test_options_flow_split_calendars(
         "calendar_access": "read_write",
         "split_calendars": [CALENDAR_ID],
     }
+
+
+async def create_event(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    domain: str,
+    entity_id: str,
+) -> tuple[dict[str, Any], dict[str, str]]:
+    """Create an event with an action and return the request body and query."""
+    aioclient_mock.clear_requests()
+    aioclient_mock.post(f"{API_BASE_URL}/calendars/{CALENDAR_ID}/events")
+    aioclient_mock.get(
+        f"{API_BASE_URL}/calendars/{CALENDAR_ID}/events",
+        json={"items": EVENTS, "nextSyncToken": "sync-token"},
+    )
+    await hass.services.async_call(
+        domain,
+        "create_event",
+        {
+            "summary": "New event",
+            "description": "Created from Home Assistant",
+            "start_date": "2026-11-01",
+            "end_date": "2026-11-02",
+        },
+        target={"entity_id": entity_id},
+        blocking=True,
+    )
+    posts = [call for call in aioclient_mock.mock_calls if call[0] == "post"]
+    assert len(posts) == 1
+    _, url, body, _ = posts[0]
+    return body, dict(url.query)
+
+
+@pytest.mark.parametrize("domain", ["calendar", DOMAIN])
+@pytest.mark.parametrize(
+    ("entity_id", "expected_label"),
+    [
+        (f"{TEST_API_ENTITY}_child1", LABEL_CHILD1),
+        # A newer colour with no legacy colorId
+        (f"{TEST_API_ENTITY}_radicchio", LABEL_RADICCHIO),
+        # The default colour's entity writes no colour
+        (f"{TEST_API_ENTITY}_everyone", None),
+        (TEST_API_ENTITY, None),
+    ],
+)
+async def test_create_event_writes_label(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    mock_calendar_get,
+    mock_events_list_items,
+    component_setup: ComponentSetup,
+    domain: str,
+    entity_id: str,
+    expected_label: str | None,
+) -> None:
+    """Test events get the entity's label, sent with eventLabelVersion=1."""
+    mock_calendar_get(CALENDAR_ID, calendar_labels())
+    mock_events_list_items(EVENTS)
+    assert await component_setup()
+
+    body, query = await create_event(hass, aioclient_mock, domain, entity_id)
+
+    assert body.get("eventLabelId") == expected_label
+    assert "colorId" not in body
+    # Google ignores eventLabelId without the parameter, and ignores colorId
+    # with it, so it is only sent when writing a label
+    assert query.get("eventLabelVersion") == ("1" if expected_label else None)
+
+
+async def test_other_writable_when_default_colour_unnamed(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    mock_calendar_get,
+    mock_events_list_items,
+    component_setup: ComponentSetup,
+) -> None:
+    """Test Other creates uncoloured events when they would land on Other."""
+    mock_calendar_get(CALENDAR_ID, calendar_labels(basil_name=None))
+    mock_events_list_items(EVENTS)
+    assert await component_setup()
+
+    state = hass.states.get(f"{TEST_API_ENTITY}_other")
+    assert state.attributes["supported_features"] & CalendarEntityFeature.CREATE_EVENT
+
+    body, query = await create_event(
+        hass, aioclient_mock, "calendar", f"{TEST_API_ENTITY}_other"
+    )
+    assert "eventLabelId" not in body
+    assert "eventLabelVersion" not in query
+
+
+@pytest.mark.parametrize("calendar_access_role", ["reader"])
+async def test_colour_entities_read_only_calendar(
+    hass: HomeAssistant,
+    mock_calendar_get,
+    mock_events_list_items,
+    component_setup: ComponentSetup,
+) -> None:
+    """Test colour entities of a read-only calendar can't create events."""
+    mock_calendar_get(CALENDAR_ID, calendar_labels())
+    mock_events_list_items(EVENTS)
+    assert await component_setup()
+
+    state = hass.states.get(f"{TEST_API_ENTITY}_child1")
+    assert state.attributes.get("supported_features", 0) == 0
+
+
+async def test_delete_event_on_colour_entity(
+    hass: HomeAssistant,
+    hass_ws_client: WebSocketGenerator,
+    aioclient_mock: AiohttpClientMocker,
+    mock_calendar_get,
+    mock_events_list_items,
+    component_setup: ComponentSetup,
+) -> None:
+    """Test deleting from a colour entity deletes the event in the real calendar."""
+    mock_calendar_get(CALENDAR_ID, calendar_labels())
+    mock_events_list_items(EVENTS)
+    assert await component_setup()
+
+    aioclient_mock.clear_requests()
+    aioclient_mock.delete(
+        f"{API_BASE_URL}/calendars/{CALENDAR_ID}/events/child1-label-and-colorid"
+    )
+    mock_events_list_items(EVENTS[1:])
+
+    client = await hass_ws_client(hass)
+    await client.send_json(
+        {
+            "id": 1,
+            "type": "calendar/event/delete",
+            "entity_id": f"{TEST_API_ENTITY}_child1",
+            "uid": "child1-label-and-colorid@google.com",
+        }
+    )
+    response = await client.receive_json()
+    assert response["success"]
+    assert [call[0] for call in aioclient_mock.mock_calls] == ["delete", "get"]

@@ -6,7 +6,6 @@ import logging
 import time
 from typing import Any
 
-from gcal_sync.api import GoogleCalendarService
 from gcal_sync.exceptions import ApiException, AuthException
 import probatio
 import yaml
@@ -24,7 +23,7 @@ from homeassistant.helpers import config_entry_oauth2_flow, config_validation as
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity import generate_entity_id
 
-from .api import ApiAuthImpl, get_feature_access
+from .api import ApiAuthImpl, LabelCalendarService, get_feature_access
 from .const import DOMAIN
 from .store import GoogleConfigEntry, GoogleRuntimeData, LocalCalendarStore
 
@@ -105,7 +104,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: GoogleConfigEntry) -> bo
         raise ConfigEntryAuthFailed(
             "Required scopes are not available, reauth required"
         )
-    calendar_service = GoogleCalendarService(
+    calendar_service = LabelCalendarService(
         ApiAuthImpl(async_get_clientsession(hass), session)
     )
     entry.runtime_data = GoogleRuntimeData(

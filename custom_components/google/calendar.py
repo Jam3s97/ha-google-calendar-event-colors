@@ -421,6 +421,11 @@ class GoogleCalendarEntity(
         (event, _) = self._event_with_offset()
         return event
 
+    @property
+    def new_event_label_id(self) -> str | None:
+        """Return the colour label for events created here, or None for no colour."""
+        return None
+
     def _event_filter(self, event: Event) -> bool:
         """Return True if the event is visible and not declined."""
 
@@ -520,6 +525,8 @@ class GoogleCalendarEntity(
             event.location = location
         if rrule := kwargs.get(EVENT_RRULE):
             event.recurrence = [f"{RRULE_PREFIX}{rrule}"]
+        if label_id := self.new_event_label_id:
+            event.event_label_id = label_id
 
         try:
             await cast(
@@ -572,6 +579,19 @@ class GoogleCalendarColourEntity(GoogleCalendarEntity):
         """Return True if the event is visible and has this entity's colour."""
         return super()._event_filter(event) and self._split.bucket(event) == self.bucket
 
+    @property
+    @override
+    def new_event_label_id(self) -> str | None:
+        """Return this entity's label, or None where no colour lands here.
+
+        Events with no colour follow the calendar's default colour, so the
+        default colour's entity and Other write no label.
+        """
+        default_label = self._split.default_label
+        if self.bucket == OTHER or (default_label and self.bucket == default_label.id):
+            return None
+        return self.bucket
+
 
 async def _async_colour_entities(
     hass: HomeAssistant,
@@ -606,7 +626,10 @@ async def _async_colour_entities(
             entity_id=generate_entity_id(
                 ENTITY_ID_FORMAT, f"{parent.device_id} {label_name}", hass=hass
             ),
-            read_only=True,
+            # Events created on Other get no colour, so they only land on Other
+            # when the default colour's label is unnamed
+            read_only=parent.read_only
+            or (bucket == OTHER and split.default_label is not None),
             initial_color=label.background_color if label else parent.initial_color,
         )
         return GoogleCalendarColourEntity(
@@ -738,6 +761,8 @@ async def async_create_event(entity: GoogleCalendarEntity, call: ServiceCall) ->
     )
     if location := call.data.get(EVENT_LOCATION):
         event.location = location
+    if label_id := entity.new_event_label_id:
+        event.event_label_id = label_id
     try:
         await cast(
             CalendarSyncUpdateCoordinator, entity.coordinator

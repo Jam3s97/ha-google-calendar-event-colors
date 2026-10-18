@@ -126,7 +126,8 @@ Re-run **with** `eventLabelVersion=1`:
 - When creating: set `event_label_id` on the gcal_sync `Event` to the entity's label ID. Every label entity gets `CREATE_EVENT`, including the newer colours.
 - Sending the parameter: subclass `GoogleCalendarService` in `api.py` and override `async_create_event`. When `event.event_label_id` is set, post the same body with `params={"eventLabelVersion": "1"}` through the integration's own `ApiAuthImpl`; otherwise call the parent. Keep a reference to the auth object in the subclass instead of using gcal_sync's private `_auth`. `store_service.async_add_event` just calls `async_create_event`, so both the entity create and `google.create_event` pick this up. Track it in DIFFERENCES_FROM_CORE.md, and offer gcal_sync an upstream change so the override can be dropped later.
 - "Other", and the entity for the label that matches the calendar's default colour, both write **no label** (and so no parameter), so the event follows the calendar's default colour, as if it had been created in Google without picking a colour.
-- Update and delete: pass through to the real event ID. Changing an event's colour is out of scope for v1 (it would move the event to a different virtual entity); do it in Google. Use PATCH without the parameter so the event keeps its label.
+- When the default colour's label is named, an uncoloured event lands on that label's entity, not on Other, so **Other is read-only** in that case. It's writable only when the default colour's label is unnamed (then uncoloured events do land on Other).
+- Delete: core's delete works unchanged on colour entities, because they share the real calendar's coordinator and store. **Update: core has no update-event support**, so there is none here either. Changing an event's colour is out of scope for v1 (it would move the event to a different virtual entity); do it in Google. If update is added later, use PATCH without the parameter so the event keeps its label.
 - After writing, refresh the shared coordinator so the event appears on the right entity.
 - Test the write path against a **separate test calendar in the same Google account**, never the family calendar.
 
@@ -163,7 +164,7 @@ Re-run **with** `eventLabelVersion=1`:
 3. ~~Name the labels on the dev family calendar.~~ Done 2026-10-18: 7 named labels.
 4. ~~Spike: write colour.~~ Done: labels can be written with `eventLabelVersion=1` (section 5).
 5. ~~Implement virtual entities (read only) on the shared coordinator: label fetch, automatic per-label entities, "Other", and an options flow that picks the calendar(s) to split.~~ Done (see DIFFERENCES_FROM_CORE.md). Checked live in the dev HA on 2026-10-18: Family and HA_test split, the expected entities were created, and the log was clean.
-6. Add CREATE_EVENT (with the `GoogleCalendarService` override), then pass update/delete through. Optional: `label` field on `google.create_event`.
+6. ~~Add CREATE_EVENT (with the `GoogleCalendarService` override), then pass update/delete through.~~ Done 2026-10-18: create and delete on colour entities (core has no update). `LabelCalendarService` checked live against the test calendar, and from the dev HA's UI: creating on a named legacy colour, a named newer colour and an unnamed colour set the right label in Google, delete removed the event, and the family calendar was untouched. Still to do: checking the Daylight card's create action. Optional, not done: `label` field on `google.create_event`.
 7. Repairs suggestion for unnamed labels, README setup guide (naming colours in Google).
 8. Tests, HACS packaging, install on production HA, point the Daylight card at the new entities.
 

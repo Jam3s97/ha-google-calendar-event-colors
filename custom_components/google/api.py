@@ -1,11 +1,15 @@
 """Client library for talking to Google APIs."""
 
 import datetime
+import json
 import logging
 from typing import Any, cast, override
+from urllib.request import pathname2url
 
 import aiohttp
+from gcal_sync.api import CALENDAR_EVENTS_URL, GoogleCalendarService
 from gcal_sync.auth import AbstractAuth
+from gcal_sync.model import Event
 from oauth2client.client import (
     Credentials,
     DeviceFlowInfo,
@@ -224,3 +228,30 @@ class AccessTokenAuthImpl(AbstractAuth):
     async def async_get_access_token(self) -> str:
         """Return the access token."""
         return self._access_token
+
+
+class LabelCalendarService(GoogleCalendarService):
+    """Calendar API client that can write event colour labels.
+
+    Google only accepts `eventLabelId` on writes when the request has the query
+    parameter `eventLabelVersion=1`, which gcal_sync can't send. The parameter
+    is only sent when the event has a label: with it, Google ignores `colorId`.
+    """
+
+    def __init__(self, auth: AbstractAuth) -> None:
+        """Initialize the client, keeping the auth for label writes."""
+        super().__init__(auth)
+        self._label_auth = auth
+
+    @override
+    async def async_create_event(self, calendar_id: str, event: Event) -> None:
+        """Create an event, sending `eventLabelVersion=1` when it has a label."""
+        if not event.event_label_id:
+            await super().async_create_event(calendar_id, event)
+            return
+        body = json.loads(event.model_dump_json(exclude_unset=True, by_alias=True))
+        await self._label_auth.post(
+            CALENDAR_EVENTS_URL.format(calendar_id=pathname2url(calendar_id)),
+            json=body,
+            params={"eventLabelVersion": "1"},
+        )
