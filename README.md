@@ -85,6 +85,10 @@ When colours in use have no name, a Repairs issue (**Settings > System > Repairs
 
 Home Assistant's create-event dialog has no colour field, so **choose the colour by choosing the calendar**: pick "Family Child1" in the dialog's calendar list, and the event is created in the Family calendar in Google with Child1's colour. The same applies to the `calendar.create_event` and `google.create_event` actions and to dashboard cards that create events.
 
+<img src="docs/images/06-add-event-calendar-list.png" alt="Home Assistant Add event dialog with the calendar list showing one calendar per colour" width="700">
+
+*Home Assistant's Add event dialog: picking a colour entity in the Calendar list sets the event's colour in Google.*
+
 - Events created on `calendar.family`, or on the entity of the calendar's own colour, get no colour, so they follow the calendar's default colour.
 - `calendar.family_other` can't create events when the calendar's own colour has a name (an uncoloured event would show on that colour's entity instead).
 - Deleting an event from a colour entity deletes it from the Google calendar.
