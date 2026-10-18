@@ -2,7 +2,7 @@
 
 A custom version of Home Assistant's built-in Google Calendar (`google`) integration. It is based on the core integration at Home Assistant **2026.10.1** and overrides the built-in one when installed. It adds one virtual calendar entity per Google event colour, so dashboard calendar cards can colour events per person while you keep using a single shared Google calendar.
 
-> Work in progress. The colour split is not implemented yet. The code is currently core's integration, unchanged apart from the packaging changes listed below.
+> Work in progress. The colour split is not implemented yet; the design and spike findings are in [plan.md](plan.md). The code is currently core's integration, unchanged apart from the packaging changes in [DIFFERENCES_FROM_CORE.md](DIFFERENCES_FROM_CORE.md).
 
 ## Installation
 
