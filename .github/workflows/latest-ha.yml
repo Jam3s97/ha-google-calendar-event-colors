@@ -1,8 +1,11 @@
 name: Latest Home Assistant
 
-# Early warning, not a release gate: runs the tests against the latest stable
-# Home Assistant. The integration is core's code from the version pinned in
-# requirements_dev.txt, so a failure here means it needs re-basing (see
+# Early warning, not a release gate. The integration is core's code from the
+# Home Assistant version pinned in requirements_dev.txt (the base). Each week:
+# - core-diff fails if core's Google integration changed between the base and
+#   the latest stable Home Assistant, with the diff in the run summary;
+# - pytest runs the tests against the latest stable Home Assistant.
+# Either failing means the integration needs re-basing (see
 # DIFFERENCES_FROM_CORE.md) before upgrading Home Assistant.
 
 on:
@@ -13,6 +16,52 @@ on:
 permissions: {}
 
 jobs:
+  core-diff:
+    name: "Core's Google integration since the base version"
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Compare core's Google integration with the base version
+        run: |
+          base=$(grep -oP '^homeassistant==\K.*' requirements_dev.txt)
+          latest=$(python3 -c "import json, urllib.request; print(json.load(urllib.request.urlopen('https://pypi.org/pypi/homeassistant/json'))['info']['version'])")
+          paths="homeassistant/components/google tests/components/google"
+          # Fetch only the two tags' trees; file contents are fetched on demand
+          git init -q core-ref
+          cd core-ref
+          git remote add origin https://github.com/home-assistant/core.git
+          git fetch -q --depth 1 --filter=blob:none origin \
+            "refs/tags/${base}:refs/tags/${base}" "refs/tags/${latest}:refs/tags/${latest}"
+          if git diff --quiet "${base}" "${latest}" -- ${paths}; then
+            echo "No changes to core's Google integration between ${base} (base) and ${latest} (latest stable)." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          {
+            echo "## Core's Google integration changed between ${base} and ${latest}"
+            echo
+            echo "Re-base on ${latest} before upgrading Home Assistant (see DIFFERENCES_FROM_CORE.md)."
+            echo
+            echo '```'
+            git diff --stat "${base}" "${latest}" -- ${paths}
+            echo '```'
+            echo
+            echo "<details><summary>Full diff</summary>"
+            echo
+            echo '```diff'
+            # The run summary is limited to 1 MiB. Diff to a file first: piping
+            # into head would fail under pipefail when it truncates.
+            git diff "${base}" "${latest}" -- ${paths} > ../core.diff
+            head -c 900000 ../core.diff
+            echo '```'
+            echo "</details>"
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::Core's Google integration changed between ${base} and ${latest}: re-base before upgrading Home Assistant"
+          exit 1
+
   pytest:
     name: "Pytest (latest stable Home Assistant)"
     runs-on: "ubuntu-latest"

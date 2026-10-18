@@ -128,7 +128,7 @@ Every difference from core, and why it was made, is listed in [DIFFERENCES_FROM_
 - **Hassfest** passes, with one expected warning: "Domain collides with built-in core integration". Overriding `google` is deliberate, because it reuses the existing OAuth config entry.
 - **HACS validation** ignores `brands`, since this repo has no brand images. It also checks GitHub repository settings: the repo needs a description and topics.
 - **Lint** (ruff) and **Test** (pytest) run on every push and pull request.
-- **Latest Home Assistant** runs the tests weekly against the latest stable Home Assistant, as an early warning that the integration needs re-basing before you upgrade. It doesn't block anything.
+- **Latest Home Assistant** runs weekly as an early warning that the integration needs re-basing before you upgrade. It fails if core's Google integration changed between the base version (the `homeassistant` pin in `requirements_dev.txt`) and the latest stable Home Assistant, with the diff in the run summary, and it runs the tests against the latest stable Home Assistant. It doesn't block anything.
 - **Renovate** keeps dependencies up to date, except Home Assistant and the integration's own requirements (gcal-sync, ical, oauth2client, pytest-homeassistant-custom-component), which are pinned to core's versions and change only when re-basing.
 
 ## Development
