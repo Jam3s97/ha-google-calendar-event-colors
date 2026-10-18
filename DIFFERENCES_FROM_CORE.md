@@ -42,6 +42,20 @@ Creating an event on a colour entity gives it that entity's label in Google. Cor
 | `__init__.py` | `async_setup_entry` creates a `LabelCalendarService` instead of a `GoogleCalendarService`. |
 | `calendar.py` | `GoogleCalendarEntity` gets a `new_event_label_id` property (None, so core behaviour is unchanged). The entity's `async_create_event` and the `google.create_event` action set it as the new event's `event_label_id`. `GoogleCalendarColourEntity` returns its label, except for Other and the default colour's entity, which write no label so the event follows the calendar's default colour. Colour entities are writable when the real calendar is, except Other when the default colour's label is named (an uncoloured event would land on that label's entity, not Other). Delete is core's, on the shared coordinator. Core has no update-event support, so there is none here either. |
 
+### Prompting the user to name colours
+
+Colours without a name in Google get entities named after the colour. Core has nothing like this, so this adds a Repairs issue and an options-flow step that list them with sample events.
+
+| File | Change |
+|--|--|
+| `colours.py` | `unnamed_colours_in_use()` returns, for each unnamed label in use, the number of events (a recurring series counts once) and up to 3 samples, upcoming first. `events_in_scan_window()` holds the scan window (90 days back, a year ahead) shared by the entity code and the options flow. |
+| `colour_issues.py` | **New.** Creates, replaces and deletes the info-only (`is_fixable=False`) Repairs issue `unnamed_colours`, one per split calendar. The issue id is `unnamed_colours_<entry id>_<calendar hash>_<hash of the unnamed label ids>`, so an ignored issue comes back as a new one when the set of unnamed colours changes. |
+| `store.py` | `GoogleRuntimeData` gains `coordinators` (each calendar's main sync coordinator, keyed by calendar id) and `unnamed_colours` (the latest result per split calendar), both read by the options flow. |
+| `calendar.py` | Registers each calendar's main sync coordinator in `runtime_data.coordinators`. The colour entities' coordinator listener also stores the unnamed colours and updates the issue. Setup deletes the issues of calendars that are no longer split. |
+| `__init__.py` | `async_remove_entry` deletes the entry's issues. |
+| `config_flow.py` | The options form's description lists unnamed colours in calendars that are already split. When a newly ticked calendar uses unnamed colours, a second step (`unnamed_colours`) lists them with samples and asks **Split now** or **Wait**. Wait is the default; it leaves those calendars unsplit and is followed by a `not_split` confirmation step (a form, because the options dialog ignores a `create_entry` description). It reads the labels with one `calendars.get` call per newly ticked calendar, and the events from that calendar's coordinator. |
+| `strings.json`, `translations/en.json` | Text for the options description, the `unnamed_colours` and `not_split` steps, the `unnamed_action` selector and the `unnamed_colours` issue. |
+
 Known limitation: a colour entity's state (the current/next event) only looks at the calendar's next 20 upcoming events (core's `MAX_UPCOMING_EVENTS`), so a colour with no event among them shows as off. Event lists from `async_get_events` (which cards use) are not affected.
 
 ## Packaging changes
@@ -63,7 +77,7 @@ These changes make core's code run as a custom integration. They don't change ho
 | `tests/conftest.py`, `pytest.ini`, `tests/__init__.py`, `tests/components/__init__.py` | Added. | They turn on custom integrations and asyncio mode for pytest. |
 | `tests/conftest.py` | Defines the `snapshot` fixture with `HomeAssistantSnapshotExtension`, as core's `tests/conftest.py` does. | pytest-homeassistant-custom-component sets this from a plugin, so it only applies if that plugin loads after syrupy. In CI syrupy loaded last, looked in `__snapshots__/` and failed `test_diagnostics` with "Snapshot does not exist". |
 | `tests/ruff.toml` | Core's test ruff config, with first-party packages adjusted. | Matches how core lints its tests. |
-| `tests/components/google/test_colours.py` | **New.** Tests for the colour split rule, the colour entities, rename stability, stale-entity clean-up, the options flow, and creating (label in the body, `eventLabelVersion=1` in the URL only when writing a label) and deleting events on colour entities. | Tests for the colour entities. |
+| `tests/components/google/test_colours.py` | **New.** Tests for the colour split rule, the colour entities, rename stability, stale-entity clean-up, the options flow, creating (label in the body, `eventLabelVersion=1` in the URL only when writing a label) and deleting events on colour entities, unnamed-colour detection, the Repairs issue (including that an ignored issue returns for a new colour) and the options flow's unnamed-colours step. | Tests for the colour entities. |
 
 ## Upgrading to a new core version
 

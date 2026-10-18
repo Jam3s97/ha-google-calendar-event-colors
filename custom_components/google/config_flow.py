@@ -7,7 +7,7 @@ from typing import Any, override
 
 from gcal_sync.api import GoogleCalendarService
 from gcal_sync.exceptions import ApiException, ApiForbiddenException
-from gcal_sync.model import AccessRole
+from gcal_sync.model import AccessRole, Calendar
 import probatio
 
 from homeassistant.config_entries import (
@@ -24,6 +24,7 @@ from homeassistant.helpers.selector import (
     SelectSelectorConfig,
     SelectSelectorMode,
 )
+from homeassistant.util import dt as dt_util
 
 from .api import (
     DEVICE_AUTH_CREDS,
@@ -33,6 +34,13 @@ from .api import (
     InvalidCredential,
     OAuthError,
     async_create_device_flow,
+)
+from .colour_issues import format_colour_usages
+from .colours import (
+    ColourSplit,
+    ColourUsage,
+    events_in_scan_window,
+    unnamed_colours_in_use,
 )
 from .const import (
     CONF_CALENDAR_ACCESS,
@@ -46,6 +54,10 @@ from .const import (
 from .store import GoogleConfigEntry
 
 _LOGGER = logging.getLogger(__name__)
+
+CONF_UNNAMED_ACTION = "unnamed_action"
+UNNAMED_ACTION_SPLIT = "split"
+UNNAMED_ACTION_WAIT = "wait"
 
 
 class OAuth2FlowHandler(
@@ -267,13 +279,28 @@ class OAuth2FlowHandler(
 class OptionsFlowHandler(OptionsFlowWithReload):
     """Google Calendar options flow."""
 
+    def __init__(self) -> None:
+        """Initialize the options flow."""
+        self._options: dict[str, Any] = {}
+        self._calendars: dict[str, Calendar] = {}
+        self._unnamed: dict[str, tuple[str, list[ColourUsage]]] = {}
+
     async def async_step_init(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manage the options."""
         options = self.config_entry.options
         if user_input is not None:
-            return self.async_create_entry(title="", data={**options, **user_input})
+            self._options = {**options, **user_input}
+            newly_split = [
+                calendar_id
+                for calendar_id in user_input.get(CONF_SPLIT_CALENDARS, [])
+                if calendar_id not in options.get(CONF_SPLIT_CALENDARS, [])
+            ]
+            self._unnamed = await self._async_unnamed_colours(newly_split)
+            if self._unnamed:
+                return await self.async_step_unnamed_colours()
+            return self.async_create_entry(title="", data=self._options)
 
         schema: dict[Any, Any] = {
             probatio.Required(
@@ -286,29 +313,94 @@ class OptionsFlowHandler(OptionsFlowWithReload):
                 }
             )
         }
-        if calendars := await self._async_splittable_calendars():
+        self._calendars = await self._async_splittable_calendars()
+        if self._calendars:
             schema[
                 probatio.Optional(
                     CONF_SPLIT_CALENDARS,
                     default=[
                         calendar_id
                         for calendar_id in options.get(CONF_SPLIT_CALENDARS, [])
-                        if calendar_id in calendars
+                        if calendar_id in self._calendars
                     ],
                 )
             ] = SelectSelector(
                 SelectSelectorConfig(
                     options=[
-                        SelectOptionDict(value=calendar_id, label=summary)
-                        for calendar_id, summary in calendars.items()
+                        SelectOptionDict(value=calendar_id, label=calendar.summary)
+                        for calendar_id, calendar in self._calendars.items()
                     ],
                     multiple=True,
                     mode=SelectSelectorMode.LIST,
                 )
             )
-        return self.async_show_form(step_id="init", data_schema=probatio.Schema(schema))
+        return self.async_show_form(
+            step_id="init",
+            data_schema=probatio.Schema(schema),
+            description_placeholders={
+                "unnamed_colours": self._describe_split_calendars(
+                    options.get(CONF_SPLIT_CALENDARS, [])
+                )
+            },
+        )
 
-    async def _async_splittable_calendars(self) -> dict[str, str]:
+    async def async_step_unnamed_colours(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Let the user wait with splitting calendars that use unnamed colours."""
+        if user_input is not None:
+            if user_input[CONF_UNNAMED_ACTION] == UNNAMED_ACTION_WAIT:
+                self._options[CONF_SPLIT_CALENDARS] = [
+                    calendar_id
+                    for calendar_id in self._options[CONF_SPLIT_CALENDARS]
+                    if calendar_id not in self._unnamed
+                ]
+                return await self.async_step_not_split()
+            return self.async_create_entry(title="", data=self._options)
+
+        return self.async_show_form(
+            step_id="unnamed_colours",
+            data_schema=probatio.Schema(
+                {
+                    probatio.Required(
+                        CONF_UNNAMED_ACTION, default=UNNAMED_ACTION_WAIT
+                    ): SelectSelector(
+                        SelectSelectorConfig(
+                            options=[UNNAMED_ACTION_SPLIT, UNNAMED_ACTION_WAIT],
+                            mode=SelectSelectorMode.LIST,
+                            translation_key=CONF_UNNAMED_ACTION,
+                        )
+                    )
+                }
+            ),
+            description_placeholders={
+                "colours": "\n\n".join(
+                    f"**{name}**\n\n{format_colour_usages(usages)}"
+                    for name, usages in self._unnamed.values()
+                )
+            },
+        )
+
+    async def async_step_not_split(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Confirm which calendars weren't split, then save the other options.
+
+        The options dialog ignores a create_entry description, so this is a
+        form step rather than a message on the saved screen.
+        """
+        if user_input is not None:
+            return self.async_create_entry(title="", data=self._options)
+        return self.async_show_form(
+            step_id="not_split",
+            data_schema=probatio.Schema({}),
+            description_placeholders={
+                "calendars": ", ".join(name for name, _ in self._unnamed.values())
+            },
+            last_step=True,
+        )
+
+    async def _async_splittable_calendars(self) -> dict[str, Calendar]:
         """Return the calendars that can be split by colour, keyed by id."""
         runtime_data = getattr(self.config_entry, "runtime_data", None)
         if runtime_data is None:
@@ -319,7 +411,51 @@ class OptionsFlowHandler(OptionsFlowWithReload):
             _LOGGER.debug("Unable to list calendars: %s", err)
             return {}
         return {
-            calendar.id: calendar.summary
+            calendar.id: calendar
             for calendar in result.items
             if calendar.access_role != AccessRole.FREE_BUSY_READER
         }
+
+    async def _async_unnamed_colours(
+        self, calendar_ids: list[str]
+    ) -> dict[str, tuple[str, list[ColourUsage]]]:
+        """Return the unnamed colours in use, for calendars about to be split."""
+        runtime_data = getattr(self.config_entry, "runtime_data", None)
+        if runtime_data is None:
+            return {}
+        now = dt_util.now()
+        unnamed = {}
+        for calendar_id in calendar_ids:
+            coordinator = runtime_data.coordinators.get(calendar_id)
+            calendar_item = self._calendars.get(calendar_id)
+            if coordinator is None or coordinator.data is None or not calendar_item:
+                continue
+            try:
+                calendar = await runtime_data.service.async_get_calendar(calendar_id)
+            except ApiException as err:
+                _LOGGER.debug("Unable to read labels of %s: %s", calendar_id, err)
+                continue
+            split = ColourSplit(calendar, calendar_item.background_color)
+            if usages := unnamed_colours_in_use(
+                split, events_in_scan_window(coordinator.data, now), now
+            ):
+                unnamed[calendar_id] = (calendar_item.summary, usages)
+        return unnamed
+
+    def _describe_split_calendars(self, split_calendar_ids: list[str]) -> str:
+        """Return a note on unnamed colours in calendars that are already split."""
+        runtime_data = getattr(self.config_entry, "runtime_data", None)
+        if runtime_data is None:
+            return ""
+        lines = [
+            f"- **{name}**: " + ", ".join(usage.label.display_name for usage in usages)
+            for calendar_id, (name, usages) in runtime_data.unnamed_colours.items()
+            if usages and calendar_id in split_calendar_ids
+        ]
+        if not lines:
+            return ""
+        return (
+            "\n\nThese colours in split calendars have no name in Google"
+            " Calendar. See Settings > System > Repairs for example events and"
+            " how to name them.\n\n" + "\n".join(lines)
+        )

@@ -1,8 +1,8 @@
 """Google Calendar local storage."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import logging
-from typing import Any, override
+from typing import TYPE_CHECKING, Any, override
 
 from gcal_sync.api import GoogleCalendarService
 from gcal_sync.store import CalendarStore
@@ -11,7 +11,11 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
+from .colours import ColourUsage
 from .const import DOMAIN
+
+if TYPE_CHECKING:
+    from .coordinator import CalendarSyncUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -29,6 +33,12 @@ class GoogleRuntimeData:
 
     service: GoogleCalendarService
     store: LocalCalendarStore
+    coordinators: dict[str, CalendarSyncUpdateCoordinator] = field(default_factory=dict)
+    """Sync coordinator of each calendar's main entity, keyed by calendar id."""
+    unnamed_colours: dict[str, tuple[str, list[ColourUsage]]] = field(
+        default_factory=dict
+    )
+    """Calendar name and unnamed colours in use, keyed by split calendar id."""
 
 
 class LocalCalendarStore(CalendarStore):

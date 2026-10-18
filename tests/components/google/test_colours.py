@@ -10,15 +10,18 @@ from gcal_sync.auth import API_BASE_URL
 from gcal_sync.model import CalendarBasic, Event
 import pytest
 
-from custom_components.google.colours import OTHER, ColourSplit
+from custom_components.google.colours import OTHER, ColourSplit, unnamed_colours_in_use
 from custom_components.google.const import CONF_SPLIT_CALENDARS, DOMAIN
 from homeassistant.components.calendar import CalendarEntityFeature
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
-from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.util import dt as dt_util
-from pytest_homeassistant_custom_component.common import MockConfigEntry
+from pytest_homeassistant_custom_component.common import (
+    MockConfigEntry,
+    async_fire_time_changed,
+)
 from pytest_homeassistant_custom_component.test_util.aiohttp import AiohttpClientMocker
 from pytest_homeassistant_custom_component.typing import (
     ClientSessionGenerator,
@@ -307,10 +310,12 @@ async def test_options_flow_split_calendars(
     mock_calendars_list: ApiResult,
     test_api_calendar: dict[str, Any],
     mock_events_list_items,
+    mock_calendar_get,
     component_setup: ComponentSetup,
 ) -> None:
     """Test choosing calendars to split in the options flow."""
     mock_events_list_items([])
+    mock_calendar_get(CALENDAR_ID, calendar_labels())
     assert await component_setup()
 
     result = await hass.config_entries.options.async_init(config_entry.entry_id)
@@ -469,3 +474,199 @@ async def test_delete_event_on_colour_entity(
     response = await client.receive_json()
     assert response["success"]
     assert [call[0] for call in aioclient_mock.mock_calls] == ["delete", "get"]
+
+
+def google_issues(hass: HomeAssistant) -> list[ir.IssueEntry]:
+    """Return the integration's unnamed colour issues."""
+    return [
+        issue
+        for (domain, issue_id), issue in ir.async_get(hass).issues.items()
+        if domain == DOMAIN and issue_id.startswith("unnamed_colours_")
+    ]
+
+
+def test_unnamed_colours_in_use() -> None:
+    """Test unnamed colours are counted per series, with upcoming samples first."""
+    split = split_for("Everyone")
+    now = dt_util.now()
+    weekly = [
+        event("weekly", days, eventLabelId=LABEL_RADICCHIO) for days in (7, 14, 21)
+    ]
+    events = [
+        event("past", -10, eventLabelId=LABEL_RADICCHIO),
+        *weekly,
+        event("soon", 1, eventLabelId=LABEL_RADICCHIO),
+        event("later", 30, eventLabelId=LABEL_RADICCHIO),
+        event("named", 2, eventLabelId=LABEL_CHILD1),
+        event("tomato", 3, colorId="11"),
+    ]
+    # Recurring instances share an iCalUID
+    for raw in weekly:
+        raw["iCalUID"] = "weekly@google.com"
+
+    usages = unnamed_colours_in_use(split, [Event(**raw) for raw in events], now)
+
+    assert [usage.label.display_name for usage in usages] == ["Radicchio", "Tomato"]
+    radicchio = usages[0]
+    assert radicchio.event_count == 4
+    assert [sample.summary for sample in radicchio.samples] == [
+        "soon",
+        "weekly",
+        "later",
+    ]
+    assert usages[1].event_count == 1
+
+
+async def test_unnamed_colours_issue(
+    hass: HomeAssistant,
+    mock_calendar_get,
+    mock_events_list_items,
+    component_setup: ComponentSetup,
+) -> None:
+    """Test a Repairs issue lists unnamed colours in use with sample events."""
+    mock_calendar_get(CALENDAR_ID, calendar_labels())
+    mock_events_list_items(EVENTS)
+    assert await component_setup()
+
+    issues = google_issues(hass)
+    assert len(issues) == 1
+    issue = issues[0]
+    assert not issue.is_fixable
+    assert issue.translation_key == "unnamed_colours"
+    assert issue.translation_placeholders["calendar"] == (
+        "We are, we are, a... Test Calendar"
+    )
+    assert issue.translation_placeholders["colours"].startswith(
+        '- **Radicchio**: 1 event, for example "radicchio-label-only" ('
+    )
+
+
+async def test_no_issue_when_colours_are_named(
+    hass: HomeAssistant,
+    mock_calendar_get,
+    mock_events_list_items,
+    component_setup: ComponentSetup,
+) -> None:
+    """Test no issue is raised when every colour in use is named."""
+    mock_calendar_get(CALENDAR_ID, calendar_labels())
+    mock_events_list_items(
+        [raw for raw in EVENTS if raw["id"] != "radicchio-label-only"]
+    )
+    assert await component_setup()
+
+    assert google_issues(hass) == []
+
+
+async def test_ignored_issue_returns_for_new_unnamed_colour(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    mock_calendar_get,
+    mock_events_list_items,
+    component_setup: ComponentSetup,
+) -> None:
+    """Test an ignored issue comes back as a new issue when another colour is used."""
+    mock_calendar_get(CALENDAR_ID, calendar_labels())
+    mock_events_list_items(EVENTS)
+    assert await component_setup()
+    (issue,) = google_issues(hass)
+    ir.async_ignore_issue(hass, DOMAIN, issue.issue_id, True)
+
+    # The mocker answers with the first matching mock, so replace them
+    aioclient_mock.clear_requests()
+    mock_calendar_get(CALENDAR_ID, calendar_labels())
+    mock_events_list_items([*EVENTS, event("tomato", 7, colorId="11")])
+    async_fire_time_changed(hass, dt_util.utcnow() + datetime.timedelta(minutes=30))
+    await hass.async_block_till_done()
+
+    (new_issue,) = google_issues(hass)
+    assert new_issue.issue_id != issue.issue_id
+    assert new_issue.dismissed_version is None
+    assert "**Tomato**" in new_issue.translation_placeholders["colours"]
+
+
+async def test_unsplit_calendar_removes_issue(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_calendar_get,
+    mock_events_list_items,
+    component_setup: ComponentSetup,
+) -> None:
+    """Test the issue is removed when the calendar is no longer split."""
+    mock_calendar_get(CALENDAR_ID, calendar_labels())
+    mock_events_list_items(EVENTS)
+    assert await component_setup()
+    assert len(google_issues(hass)) == 1
+
+    hass.config_entries.async_update_entry(config_entry, options={})
+    await hass.config_entries.async_reload(config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    assert google_issues(hass) == []
+
+
+async def test_options_flow_notes_unnamed_colours(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_calendar_get,
+    mock_events_list_items,
+    component_setup: ComponentSetup,
+) -> None:
+    """Test the options form lists unnamed colours of split calendars."""
+    mock_calendar_get(CALENDAR_ID, calendar_labels())
+    mock_events_list_items(EVENTS)
+    assert await component_setup()
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    assert result["step_id"] == "init"
+    note = result["description_placeholders"]["unnamed_colours"]
+    assert "Repairs" in note
+    assert "- **We are, we are, a... Test Calendar**: Radicchio" in note
+
+
+@pytest.mark.parametrize("config_entry_options", [None])
+@pytest.mark.parametrize(
+    ("action", "expected_split"), [("split", [CALENDAR_ID]), ("wait", [])]
+)
+async def test_options_flow_unnamed_colours_step(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_calendar_get,
+    mock_events_list_items,
+    component_setup: ComponentSetup,
+    action: str,
+    expected_split: list[str],
+) -> None:
+    """Test splitting a calendar with unnamed colours asks to split now or wait."""
+    mock_events_list_items(EVENTS)
+    assert await component_setup()
+    mock_calendar_get(CALENDAR_ID, calendar_labels())
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    assert result["description_placeholders"]["unnamed_colours"] == ""
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"],
+        user_input={"calendar_access": "read_write", "split_calendars": [CALENDAR_ID]},
+    )
+    assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "unnamed_colours"
+    assert "**Radicchio**" in result["description_placeholders"]["colours"]
+    # Wait is the default, so submitting without reading doesn't split
+    assert result["data_schema"]({}) == {"unnamed_action": "wait"}
+
+    with patch("custom_components.google.async_setup_entry", return_value=True):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"], user_input={"unnamed_action": action}
+        )
+        if action == "wait":
+            # A confirmation page says which calendars weren't split
+            assert result["type"] is FlowResultType.FORM
+            assert result["step_id"] == "not_split"
+            assert result["description_placeholders"] == {
+                "calendars": "We are, we are, a... Test Calendar"
+            }
+            result = await hass.config_entries.options.async_configure(
+                result["flow_id"], user_input={}
+            )
+        await hass.async_block_till_done()
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert config_entry.options[CONF_SPLIT_CALENDARS] == expected_split

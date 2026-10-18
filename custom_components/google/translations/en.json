@@ -55,7 +55,19 @@
         },
         "data_description": {
           "split_calendars": "Each selected calendar gets one extra calendar entity per named colour label in Google Calendar, plus one for unnamed colours in use and an \"Other\" entity. Name colours in Google Calendar: edit an event, open the colour menu, and click the pencil next to a colour."
+        },
+        "description": "Choose which calendars to split into one calendar entity per event colour.{unnamed_colours}"
+      },
+      "unnamed_colours": {
+        "title": "Colours without a name",
+        "description": "These calendars use colours that have no name in Google Calendar:\n\n{colours}\n\nIf you split now, these colours get calendar entities named after the colour, such as `calendar.family_radicchio`. Naming the colour later renames the entity, but its entity ID stays the same.\n\nTo name a colour: in Google Calendar on the web, open one of the events above, open the colour menu and select the pencil next to the colour. Then come back here to split the calendar.",
+        "data": {
+          "unnamed_action": "What do you want to do?"
         }
+      },
+      "not_split": {
+        "title": "Calendar not split",
+        "description": "**{calendars}** won't be split for now.\n\nTo split it later: name its colours in Google Calendar (on the web, open an event, open the colour menu and select the pencil next to the colour), then open **Configure** again and tick it.\n\nSelect **Submit** to save the rest of your choices."
       }
     }
   },
@@ -135,6 +147,20 @@
         }
       },
       "name": "Create event in Google Calendar"
+    }
+  },
+  "selector": {
+    "unnamed_action": {
+      "options": {
+        "split": "Split now",
+        "wait": "Wait: don't split these calendars yet"
+      }
+    }
+  },
+  "issues": {
+    "unnamed_colours": {
+      "title": "{calendar}: colours without a name",
+      "description": "The **{calendar}** calendar is split by event colour, and these colours have no name in Google Calendar, so their calendar entities are named after the colour:\n\n{colours}\n\nTo name a colour: in Google Calendar on the web, open one of the events above, open the colour menu and select the pencil next to the colour. Then reload the Google Calendar integration. The entity is renamed; its entity ID stays the same, and you can change it in the entity's settings.\n\nIf you're happy with the colour names, ignore this. It comes back if another colour without a name starts being used."
     }
   }
 }

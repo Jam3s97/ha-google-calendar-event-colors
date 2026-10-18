@@ -14,12 +14,21 @@ with the label that matches the calendar's default colour when that label is
 named, otherwise with "Other".
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
+import datetime
 from typing import Final
 
 from gcal_sync.model import CalendarBasic, Event
+from gcal_sync.timeline import Timeline
 
 OTHER: Final = "other"
+
+# Window scanned for colours in use: matches the sync window's start (core
+# syncs from 90 days ago) and looks a year ahead.
+SCAN_START: Final = datetime.timedelta(days=-90)
+SCAN_END: Final = datetime.timedelta(days=365)
+MAX_SAMPLES: Final = 3
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -261,3 +270,57 @@ class ColourSplit:
             label = self._label_by_color_id.get(event.color_id)
             return label.id if label else OTHER
         return self.default_label.id if self.default_label else OTHER
+
+
+@dataclass(frozen=True, kw_only=True)
+class ColourUsage:
+    """An unnamed colour label in use, with sample events to help find it."""
+
+    label: ColourLabel
+    event_count: int
+    """Number of events with this colour; a recurring series counts once."""
+    samples: list[Event]
+    """Up to MAX_SAMPLES events, upcoming first, then the most recent past ones."""
+
+
+def events_in_scan_window(
+    timeline: Timeline, now: datetime.datetime
+) -> Iterable[Event]:
+    """Return the events (recurring ones expanded) in the scan window."""
+    return timeline.overlapping(now + SCAN_START, now + SCAN_END)
+
+
+def unnamed_colours_in_use(
+    split: ColourSplit, events: Iterable[Event], now: datetime.datetime
+) -> list[ColourUsage]:
+    """Return the unnamed labels that events use, most used first."""
+    series_by_label: dict[str, dict[str, Event]] = {}
+    for event in events:
+        label = split.labels.get(split.bucket(event))
+        if label is None or label.name:
+            continue
+        series = series_by_label.setdefault(label.id, {})
+        key = event.ical_uuid or event.id or event.summary
+        if key not in series or _sample_rank(event, now) < _sample_rank(
+            series[key], now
+        ):
+            series[key] = event
+    usages = [
+        ColourUsage(
+            label=split.labels[label_id],
+            event_count=len(series),
+            samples=sorted(series.values(), key=lambda e: _sample_rank(e, now))[
+                :MAX_SAMPLES
+            ],
+        )
+        for label_id, series in series_by_label.items()
+    ]
+    return sorted(usages, key=lambda u: (-u.event_count, u.label.display_name))
+
+
+def _sample_rank(event: Event, now: datetime.datetime) -> tuple[int, int]:
+    """Rank upcoming events first (soonest first), then past (most recent first)."""
+    start = event.start.value
+    day = start.date() if isinstance(start, datetime.datetime) else start
+    days = (day - now.date()).days
+    return (0, days) if days >= 0 else (1, -days)

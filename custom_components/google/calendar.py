@@ -56,7 +56,17 @@ from . import (
     update_config,
 )
 from .api import get_feature_access
-from .colours import OTHER, ColourLabel, ColourSplit
+from .colour_issues import (
+    async_delete_unnamed_colours_issues,
+    async_update_unnamed_colours_issue,
+)
+from .colours import (
+    OTHER,
+    ColourLabel,
+    ColourSplit,
+    events_in_scan_window,
+    unnamed_colours_in_use,
+)
 from .const import (
     CONF_SPLIT_CALENDARS,
     EVENT_END_DATE,
@@ -77,8 +87,6 @@ _LOGGER = logging.getLogger(__name__)
 # recurring events are still included.
 SYNC_EVENT_MIN_TIME = timedelta(days=-90)
 
-# Window scanned for unnamed colour labels in use, which get their own entity.
-COLOUR_SCAN_MAX_TIME = timedelta(days=365)
 COLOUR_UNIQUE_ID_MARKER = "-colour-"
 
 # Events have a transparency that determine whether or not they block time on calendar.
@@ -316,6 +324,13 @@ async def async_setup_entry(
                     unique_id,
                 )
             )
+            if entity_description.event_type is None and isinstance(
+                coordinator, CalendarSyncUpdateCoordinator
+            ):
+                # The options flow reads events from it to find unnamed colours
+                config_entry.runtime_data.coordinators.setdefault(
+                    calendar_id, coordinator
+                )
             if (
                 calendar_id in split_calendar_ids
                 and unique_id
@@ -342,6 +357,9 @@ async def async_setup_entry(
         )
         if marker and parent_unique_id not in split_parent_unique_ids:
             entity_registry.async_remove(entity_entry.entity_id)
+    async_delete_unnamed_colours_issues(
+        hass, config_entry.entry_id, split_parent_unique_ids
+    )
 
     async_add_entities(entities)
 
@@ -652,12 +670,20 @@ async def _async_colour_entities(
         if not coordinator.last_update_success or coordinator.data is None:
             return
         now = dt_util.now()
-        used = {
-            split.bucket(event)
-            for event in coordinator.data.overlapping(
-                now + SYNC_EVENT_MIN_TIME, now + COLOUR_SCAN_MAX_TIME
-            )
-        }
+        events = list(events_in_scan_window(coordinator.data, now))
+        used = {split.bucket(event) for event in events}
+        usages = unnamed_colours_in_use(split, events, now)
+        config_entry.runtime_data.unnamed_colours[calendar_item.id] = (
+            calendar_item.summary,
+            usages,
+        )
+        async_update_unnamed_colours_issue(
+            hass,
+            config_entry.entry_id,
+            parent_unique_id,
+            calendar_item.summary,
+            usages,
+        )
         new_entities = [
             build(bucket, split.labels[bucket])
             for bucket in used

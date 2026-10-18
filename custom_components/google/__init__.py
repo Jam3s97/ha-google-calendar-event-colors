@@ -24,6 +24,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity import generate_entity_id
 
 from .api import ApiAuthImpl, LabelCalendarService, get_feature_access
+from .colour_issues import async_delete_unnamed_colours_issues
 from .const import DOMAIN
 from .store import GoogleConfigEntry, GoogleRuntimeData, LocalCalendarStore
 
@@ -143,6 +144,7 @@ async def async_remove_entry(hass: HomeAssistant, entry: GoogleConfigEntry) -> N
     """Handle removal of a local storage."""
     store = LocalCalendarStore(hass, entry.entry_id)
     await store.async_remove()
+    async_delete_unnamed_colours_issues(hass, entry.entry_id)
 
 
 def get_calendar_info(
