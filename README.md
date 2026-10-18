@@ -5,7 +5,7 @@ A custom version of Home Assistant's built-in Google Calendar (`google`) integra
 > [!WARNING]
 > **Use at your own risk.** The event colour features (everything listed in [DIFFERENCES_FROM_CORE.md](DIFFERENCES_FROM_CORE.md)) were written by Claude, Anthropic's AI model, using Claude Code. [@Jam3s97](https://github.com/Jam3s97) reviewed and tested them. The rest is Home Assistant's own Google Calendar integration. This project isn't affiliated with or supported by Home Assistant or Google. It can create and delete events in your Google calendars.
 
-**Status:** version 0.1.0, not released yet. Tested in a development Home Assistant 2026.10.1 against real Google calendars (splitting, creating and deleting events, the Repairs issue), plus automated tests. Not yet tried on a production install. The design and the findings behind it are in [plan.md](plan.md).
+**Status:** version 0.1.0, the first release, for testing. Tested in a development Home Assistant 2026.10.1 against real Google calendars (splitting, creating and deleting events, the Repairs issue), plus automated tests. Not yet tried on a production install. The design and the findings behind it are in [plan.md](plan.md).
 
 ## Installation
 
