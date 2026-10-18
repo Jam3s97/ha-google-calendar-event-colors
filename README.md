@@ -71,7 +71,24 @@ Every event appears on exactly one colour entity. `calendar.family` is unchanged
 
 *Home Assistant's calendar page with a test calendar split by colour: each entity in its Google colour.*
 
-Cards that colour events per entity can use the same split. Some cards pick their own colours per entity rather than using the Google colour; the [Daylight Calendar Card](https://github.com/superdingo101/daylight-calendar-card) is one, where you set the colours in the card's configuration.
+Cards that colour events per entity can use the same split. Some cards pick their own colours per entity rather than using the Google colour; the [Daylight Calendar Card](https://github.com/superdingo101/daylight-calendar-card) is one, where you set the colours in the card's configuration. To match Google, copy each colour entity's `color` attribute (its Google colour, shown in **Developer tools > States**) into the card. For example:
+
+```yaml
+type: custom:daylight-calendar-card
+title: Family
+default_view: month
+entities:
+  - calendar.family_parent1
+  - calendar.family_parent2
+colors:
+  calendar.family_parent1: "#f6bf26"
+  calendar.family_parent2: "#ad1457"
+calendar_names:
+  calendar.family_parent1: Parent1
+  calendar.family_parent2: Parent2
+```
+
+`calendar_names` is optional: it sets shorter names for the card to show instead of the entity names (for example "Family Parent1").
 
 ![Daylight Calendar Card showing colour entities](docs/images/07-daylight-card.png)
 

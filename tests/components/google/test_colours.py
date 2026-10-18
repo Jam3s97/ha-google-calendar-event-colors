@@ -201,10 +201,17 @@ async def test_colour_entities(
     assert state.attributes["supported_features"] == (
         CalendarEntityFeature.CREATE_EVENT | CalendarEntityFeature.DELETE_EVENT
     )
+    assert state.attributes["color"] == "#f6bf26"
+    assert hass.states.get(f"{TEST_API_ENTITY}_radicchio").attributes["color"] == (
+        "#ad1457"
+    )
+    # The real calendar has no colour attribute
+    assert "color" not in hass.states.get(TEST_API_ENTITY).attributes
     # Events created with no colour land on Everyone (the default colour), not
     # Other, so Other can't create events
     state = hass.states.get(f"{TEST_API_ENTITY}_other")
     assert state.attributes.get("supported_features", 0) == 0
+    assert state.attributes["color"] == "#16a765"
 
 
 async def test_renamed_label_keeps_entity_id(

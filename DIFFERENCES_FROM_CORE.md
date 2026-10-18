@@ -56,6 +56,14 @@ Colours without a name in Google get entities named after the colour. Core has n
 | `config_flow.py` | The options form's description lists unnamed colours in calendars that are already split. When a newly ticked calendar uses unnamed colours, a second step (`unnamed_colours`) lists them with samples and asks **Split now** or **Wait**. Wait is the default; it leaves those calendars unsplit and is followed by a `not_split` confirmation step (a form, because the options dialog ignores a `create_entry` description). It reads the labels with one `calendars.get` call per newly ticked calendar, and the events from that calendar's coordinator. |
 | `strings.json`, `translations/en.json` | Text for the options description, the `unnamed_colours` and `not_split` steps, the `unnamed_action` selector and the `unnamed_colours` issue. |
 
+### Colour attribute
+
+Some cards (for example the Daylight Calendar Card) set a colour per entity in their own config and ignore the entity colour Home Assistant stores. This shows each colour entity's Google colour, so the user can copy it into the card's config.
+
+| File | Change |
+|--|--|
+| `calendar.py` | `GoogleCalendarColourEntity.extra_state_attributes` adds `color`: the label's hex colour from Google, or the calendar's colour for Other (the same value as the entity's `initial_color`). The real calendar entity's attributes are unchanged. |
+
 Known limitation: a colour entity's state (the current/next event) only looks at the calendar's next 20 upcoming events (core's `MAX_UPCOMING_EVENTS`), so a colour with no event among them shows as off. Event lists from `async_get_events` (which cards use) are not affected.
 
 ## Packaging changes
@@ -77,7 +85,7 @@ These changes make core's code run as a custom integration. They don't change ho
 | `tests/conftest.py`, `pytest.ini`, `tests/__init__.py`, `tests/components/__init__.py` | Added. | They turn on custom integrations and asyncio mode for pytest. |
 | `tests/conftest.py` | Defines the `snapshot` fixture with `HomeAssistantSnapshotExtension`, as core's `tests/conftest.py` does. | pytest-homeassistant-custom-component sets this from a plugin, so it only applies if that plugin loads after syrupy. In CI syrupy loaded last, looked in `__snapshots__/` and failed `test_diagnostics` with "Snapshot does not exist". |
 | `tests/ruff.toml` | Core's test ruff config, with first-party packages adjusted. | Matches how core lints its tests. |
-| `tests/components/google/test_colours.py` | **New.** Tests for the colour split rule, the colour entities, rename stability, stale-entity clean-up, the options flow, creating (label in the body, `eventLabelVersion=1` in the URL only when writing a label) and deleting events on colour entities, unnamed-colour detection, the Repairs issue (including that an ignored issue returns for a new colour) and the options flow's unnamed-colours step. | Tests for the colour entities. |
+| `tests/components/google/test_colours.py` | **New.** Tests for the colour split rule, the colour entities, rename stability, stale-entity clean-up, the options flow, creating (label in the body, `eventLabelVersion=1` in the URL only when writing a label) and deleting events on colour entities, unnamed-colour detection, the Repairs issue (including that an ignored issue returns for a new colour) the options flow's unnamed-colours step and the `color` attribute. | Tests for the colour entities. |
 
 ## Upgrading to a new core version
 

@@ -599,6 +599,19 @@ class GoogleCalendarColourEntity(GoogleCalendarEntity):
 
     @property
     @override
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return the device state attributes, with the colour from Google.
+
+        Shown so it can be copied into cards that set colours in their own
+        config. Other has the calendar's colour.
+        """
+        return {
+            **super().extra_state_attributes,
+            "color": self.entity_description.initial_color,
+        }
+
+    @property
+    @override
     def new_event_label_id(self) -> str | None:
         """Return this entity's label, or None where no colour lands here.
 
