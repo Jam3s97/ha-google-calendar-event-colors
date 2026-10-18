@@ -10,7 +10,7 @@
   "customManagers": [],
   "packageRules": [
     {
-      "description": "Home Assistant should match the homeassistant key in hacs.json",
+      "description": "Home Assistant is pinned to the core version the integration is based on; update it when re-basing, see DIFFERENCES_FROM_CORE.md",
       "matchPackageNames": ["homeassistant"],
       "enabled": false
     },

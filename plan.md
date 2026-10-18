@@ -153,6 +153,7 @@ Re-run **with** `eventLabelVersion=1`:
 ## 8. Risks and open questions
 
 - Overriding a core integration can break on HA upgrades. Re-base deliberately using DIFFERENCES_FROM_CORE.md.
+- Minimum Home Assistant version (checked 2026-10-18): **2026.10.0**, set in `hacs.json`. Core's Google integration is identical in 2026.10.0 to 2026.10.2 (tests pass on all three). In 2026.9.x it differs, and our code fails to import there (`CalendarEventStatus` was added to the calendar component in 2026.10.0; core's Google code also moved to `probatio`, first shipped in 2026.9.0). Core's Google code changed in 29 of the 103 stable releases from 2025.1 to 2026.10.2, including patch releases, so check the weekly core-diff job before each upgrade.
 - The create override duplicates gcal_sync's `async_create_event` (section 5). Check it when upgrading gcal_sync, and drop it if gcal_sync adds the parameter.
 - Labels have been generally available only since 2026-07-07. Keep the `colorId` fallback on reads.
 - An event can carry only one colour. The convention is a dedicated "Everyone" label. Optional later: a title tag (for example `[Child1]`) that also shows the event on a second label's entity.

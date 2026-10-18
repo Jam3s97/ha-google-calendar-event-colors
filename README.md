@@ -11,7 +11,7 @@ A custom version of Home Assistant's built-in Google Calendar (`google`) integra
 
 Requirements:
 
-- **Home Assistant 2026.10.1.** This replaces the built-in integration with core's 2026.10.1 code plus the colour features, so on other versions it may not work. It will be updated deliberately for new Home Assistant versions.
+- **Home Assistant 2026.10.0 or later.** This replaces the built-in integration with core's 2026.10.1 code plus the colour features. Core's Google integration is the same in 2026.10.0 to 2026.10.2, and the tests pass on all three. HACS won't install it on older versions, where it couldn't load (it needs calendar features added in 2026.10.0). Later Home Assistant releases may change core's Google integration; this project is re-based on them deliberately, and a weekly CI job flags when that's needed.
 - The Google Calendar integration set up as usual (see [Home Assistant's Google Calendar docs](https://www.home-assistant.io/integrations/google/)). Your existing config entry and entities are reused.
 - To create events, the integration needs **read/write** access: **Settings > Devices & services > Google Calendar > Configure**.
 
