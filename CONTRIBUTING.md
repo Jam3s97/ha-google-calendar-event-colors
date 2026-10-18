@@ -1,61 +1,42 @@
-# Contribution guidelines
+# Contributing
 
-Contributing to this project should be as easy and transparent as possible, whether it's:
+Bug reports, questions and pull requests are welcome. This is a small, personal project: a custom version of Home Assistant's Google Calendar integration that adds one calendar entity per event colour. Its event colour features were written with Claude Code (see the [README](README.md)).
 
-- Reporting a bug
-- Discussing the current state of the code
-- Submitting a fix
-- Proposing new features
+## Reporting a bug
 
-## Github is used for everything
+[Open an issue](../../issues/new/choose) using the bug template. Helpful details:
 
-Github is used to host code, to track issues and feature requests, as well as accept pull requests.
+- Your Home Assistant version (this release is built for 2026.10.1).
+- What you did, what you expected, and what happened.
+- Debug logs. Add this to `configuration.yaml`, restart and reproduce:
 
-Pull requests are the best way to propose changes to the codebase.
+  ```yaml
+  logger:
+    logs:
+      custom_components.google: debug
+  ```
 
-1. Fork the repo and create your branch from `main`.
-2. If you've changed something, update the documentation.
-3. Make sure your code lints (using `scripts/lint`).
-4. Test you contribution.
-5. Issue that pull request!
+Leave out anything private: calendar names, event titles, email addresses and calendar IDs.
 
-## Any contributions you make will be under the MIT Software License
+## Pull requests
 
-In short, when you submit code changes, your submissions are understood to be under the same [MIT License](http://choosealicense.com/licenses/mit/) that covers the project. Feel free to contact the maintainers if that's a concern.
+1. Fork the repository and branch from `main`.
+2. Make your change, with tests where it changes behaviour.
+3. **Record any change to the integration or its tests in [DIFFERENCES_FROM_CORE.md](DIFFERENCES_FROM_CORE.md)**, in the same pull request: what changed, in which files, and why. `custom_components/google/` is Home Assistant core's integration with this project's changes on top, and that file is how they're re-applied on a newer core version. Keep changes to core's own code as small as you can.
+4. Use sample data only in code, tests and docs (labels such as Parent1, Child1, Medical, Everyone), never real names, calendars or email addresses.
+5. Make sure lint and tests pass (below), then open the pull request.
 
-## Report bugs using Github's [issues](../../issues)
+## Development
 
-GitHub issues are used to track public bugs.
-Report a bug by [opening a new issue](../../issues/new/choose); it's that easy!
+Open the repository in VS Code's devcontainer. It comes with a development Home Assistant on the same version as the integration's core code.
 
-## Write bug reports with detail, background, and sample code
+- `scripts/setup`: install the development requirements.
+- `scripts/develop`: run the development Home Assistant on port 8123, using `config/`. Only `config/configuration.yaml` is tracked; the rest of `config/` (including your Google login) is ignored by git.
+- `scripts/lint`: format and lint with ruff, using core's ruff configuration.
+- `python3 -m pytest`: run the tests (core's Google Calendar tests plus this project's).
 
-**Great Bug Reports** tend to have:
-
-- A quick summary and/or background
-- Steps to reproduce
-  - Be specific!
-  - Give sample code if you can.
-- What you expected would happen
-- What actually happens
-- Notes (possibly including why you think this might be happening, or stuff you tried that didn't work)
-
-People *love* thorough bug reports. I'm not even kidding.
-
-## Use a Consistent Coding Style
-
-Use [black](https://github.com/ambv/black) to make sure the code follows the style.
-
-## Test your code modification
-
-This custom component is based on [integration_blueprint template](https://github.com/ludeeus/integration_blueprint).
-
-It comes with development environment in a container, easy to launch
-if you use Visual Studio Code. With this container you will have a stand alone
-Home Assistant instance running and already configured with the included
-[`configuration.yaml`](./config/configuration.yaml)
-file.
+CI runs hassfest, HACS validation, ruff and pytest on every push and pull request, and once a week runs the tests against the latest stable Home Assistant as an early warning that a re-base is needed.
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under its MIT License.
+By contributing, you agree that your contributions are licensed under the [Apache License 2.0](LICENSE), the same as the rest of the project.

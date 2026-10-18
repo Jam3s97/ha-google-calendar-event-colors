@@ -1,0 +1,45 @@
+name: Latest Home Assistant
+
+# Early warning, not a release gate: runs the tests against the latest stable
+# Home Assistant. The integration is core's code from the version pinned in
+# requirements_dev.txt, so a failure here means it needs re-basing (see
+# DIFFERENCES_FROM_CORE.md) before upgrading Home Assistant.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1"
+
+permissions: {}
+
+jobs:
+  pytest:
+    name: "Pytest (latest stable Home Assistant)"
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
+        with:
+          python-version: "3.14"
+
+      - name: Find the latest stable Home Assistant
+        run: |
+          version=$(python3 -c "import json, urllib.request; print(json.load(urllib.request.urlopen('https://pypi.org/pypi/homeassistant/json'))['info']['version'])")
+          echo "HA_VERSION=${version}" >> "$GITHUB_ENV"
+          echo "Testing against Home Assistant ${version}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Install requirements
+        run: |
+          python3 -m pip install -r requirements_common.txt
+          python3 -m pip install -r requirements_dev.txt
+          # pip picks the newest test harness release that pins this version
+          python3 -m pip install --upgrade "homeassistant==${HA_VERSION}" pytest-homeassistant-custom-component
+          python3 -m pip show homeassistant pytest-homeassistant-custom-component | grep -E "^(Name|Version)"
+
+      - name: Run tests
+        run: python3 -m pytest

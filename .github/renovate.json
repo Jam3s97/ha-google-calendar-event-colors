@@ -13,6 +13,16 @@
       "description": "Home Assistant should match the homeassistant key in hacs.json",
       "matchPackageNames": ["homeassistant"],
       "enabled": false
+    },
+    {
+      "description": "Pinned to the versions core uses at the Home Assistant version this is based on (pytest-homeassistant-custom-component pins Home Assistant itself). Update them when re-basing on a newer core version, see DIFFERENCES_FROM_CORE.md",
+      "matchPackageNames": [
+        "gcal-sync",
+        "ical",
+        "oauth2client",
+        "pytest-homeassistant-custom-component"
+      ],
+      "enabled": false
     }
   ]
 }

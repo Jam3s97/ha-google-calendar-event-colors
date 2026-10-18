@@ -15,4 +15,4 @@ A custom version of Home Assistant's core `google` (Google Calendar) integration
 - `scripts/lint`: `ruff format` and `ruff check --fix`. The repo uses ruff, not black (CONTRIBUTING.md is out of date).
 - `python3 -m pytest`: run the tests (core's google tests, ported, plus `test_colours.py`).
 
-CI runs hassfest, HACS validation, ruff and pytest. Hassfest's "Domain collides with built-in core integration" warning is expected.
+CI runs hassfest, HACS validation, ruff and pytest, and weekly runs pytest against the latest stable Home Assistant (`latest-ha.yml`, an early warning that a re-base is needed). Renovate is told not to bump Home Assistant or the integration's requirements, which stay at core's versions. Hassfest's "Domain collides with built-in core integration" warning is expected.
