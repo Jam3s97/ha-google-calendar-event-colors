@@ -2,7 +2,7 @@
 
 A custom `google` integration (HACS, overriding core) that turns Google Calendar event colours into separate calendar entities, so existing dashboard cards can colour events per family member.
 
-Status, 2026-10-18: repo setup (section 0), the read spike and the write spike are done. The findings changed the design: the split **reads** Google's event labels, with `colorId` as a fallback, and **writes** `colorId`, because the API ignores labels on write.
+Status, 2026-10-18: repo setup (section 0), the read spike and the write spike are done. The split **reads** Google's event labels, with `colorId` as a fallback, and **writes** `eventLabelId`. Writing a label needs the query parameter `eventLabelVersion=1`. The first write spike left it out and wrongly concluded that labels are read-only (section 5).
 
 ## 0. Repo setup: done
 
@@ -53,7 +53,8 @@ Status, 2026-10-18: repo setup (section 0), the read spike and the write spike a
 
 ### Findings (spike, 2026-10-17, against the real family calendar)
 
-- **gcal_sync 9.2.0 already reads both colour fields**: `Event.color_id` (`colorId`) and `Event.event_label_id` (`eventLabelId`). Both are in its request fields, both are saved in the local sync store, and instances of a repeating event are deep copies of the parent, so they inherit its colour. **No wrapping of gcal_sync and no raw API calls are needed.**
+- **gcal_sync 9.2.0 already reads both colour fields**: `Event.color_id` (`colorId`) and `Event.event_label_id` (`eventLabelId`). Both are in its request fields, both are saved in the local sync store, and instances of a repeating event are deep copies of the parent, so they inherit its colour. **Reads need no wrapping of gcal_sync and no raw API calls.**
+- Reads don't need `eventLabelVersion=1`: `events.list` returns the same `colorId` and `eventLabelId` with or without it (write spike, 2026-10-18).
 - **Google has two colour systems:**
   - `colorId` 1–11: the legacy fixed palette.
   - `eventLabelId`: per-calendar labels. The family calendar has **24 labels**, one for each colour in Google Calendar's current picker. None has a name yet.
@@ -78,34 +79,54 @@ Status, 2026-10-18: repo setup (section 0), the read spike and the write spike a
 
 Requirement: adding an event through a virtual entity must land on the single real Google calendar with the right colour.
 
-### Findings (spike, 2026-10-18, on the HA_test calendar)
+### Docs
+
+Google's [Labels guide](https://developers.google.com/workspace/calendar/api/guides/labels) and the [Events reference](https://developers.google.com/workspace/calendar/api/v3/reference/events) say `eventLabelId` is writable on `insert`, `import`, `update` and `patch`, but **only when the request has the query parameter `eventLabelVersion=1`**. With that parameter, `colorId` is ignored. Labels have been generally available since 2026-07-07 (release notes). Setting one needs writer access or above. The label definitions (`labelProperties`) can be edited with `calendars.update`, by the calendar owner only.
+
+### Findings (spikes, 2026-10-18, on the HA_test calendar)
+
+First spike, **without** `eventLabelVersion=1`:
 
 | Request | Result |
 |--|--|
-| Request | Result |
-|--|--|
-| Create with `eventLabelId` only (Banana renamed "Parent1", and Radicchio) | HTTP 200, event created **with no colour**. The label is ignored. |
+| Create with `eventLabelId` only (Banana renamed "Parent1", and Radicchio), via gcal_sync and via the raw API | HTTP 200, event created **with no colour**. The label is ignored. |
 | Create with `colorId` only (7 Peacock) | Event gets `colorId=7` **and** Google adds the matching Peacock label itself. |
 | Create with both (label Parent1 + `colorId` 7) | `colorId` wins: Peacock. The label is ignored. |
-| Raw API create with `eventLabelId` (bypassing gcal_sync) | Same: 200, no colour. gcal_sync is not the cause; its request does include `eventLabelId`. |
 | Edit an existing event with `eventLabelId` | 200, no change. |
 | Edit with `colorId` 5 | `colorId=5`, and Google sets the "Parent1" (Banana) label. |
 
-- **The API can't set labels; they are read-only.** Writing `colorId` is the only way to colour an event, and Google then adds the matching label.
-- So **only the 11 legacy colours can be written**. Entities for the 13 newer colours can be read but can't create coloured events.
+Re-run **with** `eventLabelVersion=1`:
+
+| Request | Result |
+|--|--|
+| Create with label Parent1 (Banana, a legacy colour) | Label set. Google also sets the matching `colorId=5`. |
+| Create with label Parent2 (Radicchio, a newer colour) | Label set, no `colorId`. |
+| Create with label Parent1 + `colorId` 7 | The label wins: Banana, `colorId=5`. `colorId` is ignored. |
+| Create with `colorId` 7 only | `colorId` is ignored: no colour. |
+| PATCH `eventLabelId` on an existing event | Label set. |
+| PATCH other fields, no `eventLabelId` (with or without the parameter) | Label kept. |
+| PUT without `eventLabelId`, without the parameter | Label kept. |
+| PUT without `eventLabelId`, **with** the parameter | **Label removed.** |
+| PATCH `eventLabelId: ""` with the parameter | Label removed. |
+| Create through gcal_sync with the `GoogleCalendarService` subclass below (Peacock, Radicchio) | Both labels set. |
+
+- Re-checked independently on HA_test (2026-10-18): the same Radicchio-label create returned no label without the parameter and the label with `eventLabelVersion=1`. Both test events were deleted.
+- **All 24 labels can be written**, including the 13 newer colours that have no `colorId`.
+- Send the parameter **only when writing a label**. Without it, every request behaves as before. With it, `colorId` is ignored, and a PUT that leaves out `eventLabelId` clears the label.
+- gcal_sync 9.2.0 can't send the parameter: `async_create_event` and `async_patch_event` take no query parameters.
 - Label names belong to each calendar, and the same colour has a different label ID on each calendar. Read labels per calendar.
 - Events left on the calendar's **default colour** carry no `colorId` and no label in the API. Naming the matching label in Google (for example Grape → "Everyone") does **not** tag them. The integration bridges this itself (section 2).
 
 ### Design
 
-- **The colour is chosen by choosing the calendar, not through a colour field.** HA's create-event dialog and the generic `calendar.create_event` action have a fixed set of fields (summary, start, end, description, location, rrule), and an integration can't add to them. Instead, each writable colour entity appears in the dialog's calendar picker (for example "Family Child1", "Family Medical"), and picking one creates the event in Google with that colour. The Daylight card does the same through the entity its create action targets.
+- **The colour is chosen by choosing the calendar, not through a colour field.** HA's create-event dialog and the generic `calendar.create_event` action have a fixed set of fields (summary, start, end, description, location, rrule), and an integration can't add to them. Instead, each colour entity appears in the dialog's calendar picker (for example "Family Child1", "Family Medical"), and picking one creates the event in Google with that colour. The Daylight card does the same through the entity its create action targets.
 - Implement `CalendarEntityFeature.CREATE_EVENT` on virtual entities. Both the Daylight card's create action and `google.create_event` go through the entity. (Still to check: that the Daylight card's create action does go through the entity feature.)
 - The real calendar entity (`calendar.family`) stays writable. Events created there get no colour, so they follow the calendar default and land on the default colour's entity.
-- **Optional: a `label` field on `google.create_event`.** This integration owns that action's schema, so it can take an optional label name (for example `label: Medical`) that is resolved to the label's `colorId`. Useful for automations; the card doesn't need it. Reject labels on the newer colours with a clear error.
-- When creating: set `color_id` on the gcal_sync `Event` before `async_add_event`. This works through gcal_sync with no raw API call.
-- Each entity's write colour is the legacy `colorId` for its label (reference table below). Only entities on the 11 legacy colours get `CREATE_EVENT`; entities on the newer colours are read-only, and the README says so.
-- "Other", and the entity for the label that matches the calendar's default colour, both write **no colour**, so the event follows the calendar's default colour, as if it had been created in Google without picking a colour.
-- Update and delete: pass through to the real event ID. Changing an event's colour is out of scope for v1 (it would move the event to a different virtual entity); do it in Google.
+- **Optional: a `label` field on `google.create_event`.** This integration owns that action's schema, so it can take an optional label name (for example `label: Medical`) that is resolved to the label's ID. Useful for automations; the card doesn't need it. Reject unknown label names with a clear error.
+- When creating: set `event_label_id` on the gcal_sync `Event` to the entity's label ID. Every label entity gets `CREATE_EVENT`, including the newer colours.
+- Sending the parameter: subclass `GoogleCalendarService` in `api.py` and override `async_create_event`. When `event.event_label_id` is set, post the same body with `params={"eventLabelVersion": "1"}` through the integration's own `ApiAuthImpl`; otherwise call the parent. Keep a reference to the auth object in the subclass instead of using gcal_sync's private `_auth`. `store_service.async_add_event` just calls `async_create_event`, so both the entity create and `google.create_event` pick this up. Track it in DIFFERENCES_FROM_CORE.md, and offer gcal_sync an upstream change so the override can be dropped later.
+- "Other", and the entity for the label that matches the calendar's default colour, both write **no label** (and so no parameter), so the event follows the calendar's default colour, as if it had been created in Google without picking a colour.
+- Update and delete: pass through to the real event ID. Changing an event's colour is out of scope for v1 (it would move the event to a different virtual entity); do it in Google. Use PATCH without the parameter so the event keeps its label.
 - After writing, refresh the shared coordinator so the event appears on the right entity.
 - Test the write path against a **separate test calendar in the same Google account**, never the family calendar.
 
@@ -115,23 +136,23 @@ Requirement: adding an event through a virtual entity must land on the single re
 - Re-read the label definitions on startup and reload, so renames and new labels in Google show up. Add entities for new labels and remove entities for labels that no longer exist or are no longer used.
 - **Suggest naming labels.** When an unnamed label is in use, show it with its colour name and raise a Repairs issue (or a note in the options flow) suggesting the user name it in Google. Document the steps in the README:
   > In Google Calendar on the web, create or edit an event, open the colour drop-down, and click the pencil icon next to a colour to give it a name (for example "Child1" or "Medical"). Then reload the integration in Home Assistant.
-- README tip: to create events from a dashboard card, use one of the 11 original colours (Tomato, Flamingo, Tangerine, Banana, Sage, Basil, Peacock, Blueberry, Lavender, Grape, Graphite) for that label.
-- README: explain that in HA you choose an event's colour by choosing its calendar in the create dialog. Only colours HA can write (the 11 original colours) appear there.
+- Optional later: name a label from HA (for example from the Repairs issue) by writing it to Google with `calendars.update`. Google stays the single source of truth. This only works when HA is logged in as the calendar's owner. Read the calendar, change the one label, and write the whole list back, so other labels aren't overwritten.
+- README: explain that in HA you choose an event's colour by choosing its calendar in the create dialog.
 - Entity naming: the entity name is "<calendar name> <label name>". If a label shares the calendar's name (for example a "Family" label on a calendar called "Family"), the entity ID becomes `calendar.family_family`. That's harmless, and the user can rename the entity ID in HA. Don't special-case it.
 - Keep every existing entity ID for the real calendars, so current dashboards keep working.
 
 ## 7. Testing
 
 - Unit tests with mocked API responses covering: an event with a label and `colorId`, label only (newer colour), `colorId` only, no colour, a named label, an unnamed label in use, a renamed label (same entity), a recurring event with an edited instance, all-day and multi-day events.
-- Write path: assert the request body contains the expected `colorId`, and no `colorId` for "Other".
+- Write path: assert the request body contains the expected `eventLabelId` and the request has `eventLabelVersion=1`; for "Other", assert there is neither.
 - Manual: confirm each colour shows only on the right virtual entity and in the Daylight card. Create an event from the card and confirm its colour in Google Calendar on web and phone.
 - Confirm other calendars and the real `calendar.family` are unaffected.
 
 ## 8. Risks and open questions
 
 - Overriding a core integration can break on HA upgrades. Re-base deliberately using DIFFERENCES_FROM_CORE.md.
-- **The API can't write labels** (section 5). Create-from-card only works for labels on the 11 legacy colours. If Google later allows writing labels, write `eventLabelId` instead.
-- Labels are a newer Google feature; API behaviour may still change. Keep the `colorId` fallback.
+- The create override duplicates gcal_sync's `async_create_event` (section 5). Check it when upgrading gcal_sync, and drop it if gcal_sync adds the parameter.
+- Labels have been generally available only since 2026-07-07. Keep the `colorId` fallback on reads.
 - An event can carry only one colour. The convention is a dedicated "Everyone" label. Optional later: a title tag (for example `[Child1]`) that also shows the event on a second label's entity.
 - One extra `calendars.get` call at setup; the per-refresh API use stays at core levels.
 
@@ -139,10 +160,10 @@ Requirement: adding an event through a virtual entity must land on the single re
 
 1. ~~Repo setup, baseline commit, dev HA running.~~ Done.
 2. ~~Spike: read colour per event.~~ Done: works out of the box, and labels are the primary key (section 4).
-3. ~~Name the labels on the dev family calendar.~~ Done 2026-10-18: 7 named labels, all on legacy colours.
-4. ~~Spike: write colour.~~ Done: `colorId` works, labels can't be written (section 5).
-5. Implement virtual entities (read only) on the shared coordinator: label fetch, automatic per-label entities, "Other", and an options flow that picks the calendar(s) to split.
-6. Add CREATE_EVENT, then pass update/delete through. Optional: `label` field on `google.create_event`.
+3. ~~Name the labels on the dev family calendar.~~ Done 2026-10-18: 7 named labels.
+4. ~~Spike: write colour.~~ Done: labels can be written with `eventLabelVersion=1` (section 5).
+5. ~~Implement virtual entities (read only) on the shared coordinator: label fetch, automatic per-label entities, "Other", and an options flow that picks the calendar(s) to split.~~ Done (see DIFFERENCES_FROM_CORE.md). Checked live in the dev HA on 2026-10-18: Family and HA_test split, the expected entities were created, and the log was clean.
+6. Add CREATE_EVENT (with the `GoogleCalendarService` override), then pass update/delete through. Optional: `label` field on `google.create_event`.
 7. Repairs suggestion for unnamed labels, README setup guide (naming colours in Google).
 8. Tests, HACS packaging, install on production HA, point the Daylight card at the new entities.
 
@@ -150,7 +171,7 @@ Requirement: adding an event through a virtual entity must land on the single re
 
 - An event given a colour or label in Google appears only on the matching virtual entity, and every event appears on exactly one virtual entity, including the newer colours that have no `colorId`.
 - The Daylight Calendar Card shows a distinct colour per virtual entity in month, week and agenda views.
-- Creating an event from the card on a virtual entity (one on a legacy colour) produces an event in the single Google calendar with the right colour.
+- Creating an event from the card on any label's virtual entity, including the newer colours, produces an event in the single Google calendar with the right colour.
 - Renaming a label in Google and reloading renames the entity without breaking dashboards.
 - No change to existing entity IDs, other calendars or the real `calendar.family`.
 
@@ -183,7 +204,7 @@ Requirement: adding an event through a virtual entity must land on the single re
 | Birch | `#a79b8e` | none |
 | Cocoa | `#795548` | none |
 
-The legacy `colorId` mappings for 1, 2, 3, 4, 5, 7, 9 and 10 were confirmed against live events. 6, 8 and 11 are inferred from the colour codes (no events use them yet). The names of the 13 newer colours come from Google Calendar's colour picker; confirm them when naming the labels.
+The legacy `colorId` column is only used on reads, as the fallback for events without a label; writes use the label. The legacy `colorId` mappings for 1, 2, 3, 4, 5, 7, 9 and 10 were confirmed against live events. 6, 8 and 11 are inferred from the colour codes (no events use them yet). The names of the 13 newer colours come from Google Calendar's colour picker; confirm them when naming the labels.
 
 ## Reference: calendar default colours (`calendarList.colorId`)
 

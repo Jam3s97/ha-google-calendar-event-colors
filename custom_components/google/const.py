@@ -6,6 +6,7 @@ DOMAIN = "google"
 
 CONF_CALENDAR_ACCESS = "calendar_access"
 CONF_CREDENTIAL_TYPE = "credential_type"
+CONF_SPLIT_CALENDARS = "split_calendars"
 DATA_CALENDARS = "calendars"
 DATA_CONFIG = "config"
 

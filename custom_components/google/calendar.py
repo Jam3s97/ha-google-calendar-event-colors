@@ -37,7 +37,7 @@ from homeassistant.components.calendar import (
     is_offset_reached,
 )
 from homeassistant.const import CONF_DEVICE_ID, CONF_ENTITIES, CONF_NAME, CONF_OFFSET
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant, ServiceCall, callback
 from homeassistant.exceptions import HomeAssistantError, PlatformNotReady
 from homeassistant.helpers import entity_platform, entity_registry as er
 from homeassistant.helpers.entity import generate_entity_id
@@ -56,7 +56,9 @@ from . import (
     update_config,
 )
 from .api import get_feature_access
+from .colours import OTHER, ColourLabel, ColourSplit
 from .const import (
+    CONF_SPLIT_CALENDARS,
     EVENT_END_DATE,
     EVENT_END_DATETIME,
     EVENT_IN,
@@ -74,6 +76,10 @@ _LOGGER = logging.getLogger(__name__)
 # Avoid syncing super old data on initial syncs. Note that old but active
 # recurring events are still included.
 SYNC_EVENT_MIN_TIME = timedelta(days=-90)
+
+# Window scanned for unnamed colour labels in use, which get their own entity.
+COLOUR_SCAN_MAX_TIME = timedelta(days=365)
+COLOUR_UNIQUE_ID_MARKER = "-colour-"
 
 # Events have a transparency that determine whether or not they block time on calendar.
 # When an event is opaque, it means "Show me as busy" which is the default.  Events that
@@ -225,7 +231,9 @@ async def async_setup_entry(
         load_config, hass.config.path(YAML_DEVICES)
     )
     new_calendars = []
-    entities = []
+    entities: list[GoogleCalendarEntity] = []
+    split_calendar_ids = set(config_entry.options.get(CONF_SPLIT_CALENDARS, []))
+    split_parent_unique_ids: set[str] = set()
     for calendar_item in result.items:
         calendar_id = calendar_item.id
         if calendars and calendar_id in calendars:
@@ -308,6 +316,32 @@ async def async_setup_entry(
                     unique_id,
                 )
             )
+            if (
+                calendar_id in split_calendar_ids
+                and unique_id
+                and entity_description.event_type is None
+                and isinstance(coordinator, CalendarSyncUpdateCoordinator)
+            ):
+                split_parent_unique_ids.add(unique_id)
+                entities.extend(
+                    await _async_colour_entities(
+                        hass,
+                        config_entry,
+                        calendar_item,
+                        coordinator,
+                        entity_description,
+                        unique_id,
+                        async_add_entities,
+                    )
+                )
+
+    # Remove colour entities of calendars that are no longer split
+    for entity_entry in registry_entries:
+        parent_unique_id, marker, _ = entity_entry.unique_id.rpartition(
+            COLOUR_UNIQUE_ID_MARKER
+        )
+        if marker and parent_unique_id not in split_parent_unique_ids:
+            entity_registry.async_remove(entity_entry.entity_id)
 
     async_add_entities(entities)
 
@@ -514,6 +548,120 @@ class GoogleCalendarEntity(
             recurrence_range=range_value,
         )
         await self.coordinator.async_refresh()
+
+
+class GoogleCalendarColourEntity(GoogleCalendarEntity):
+    """A virtual calendar with the events of one colour label of a calendar."""
+
+    def __init__(
+        self,
+        coordinator: CalendarSyncUpdateCoordinator,
+        calendar_id: str,
+        entity_description: GoogleCalendarEntityDescription,
+        unique_id: str,
+        split: ColourSplit,
+        bucket: str,
+    ) -> None:
+        """Create the colour calendar, sharing the real calendar's coordinator."""
+        super().__init__(coordinator, calendar_id, entity_description, unique_id)
+        self._split = split
+        self.bucket = bucket
+
+    @override
+    def _event_filter(self, event: Event) -> bool:
+        """Return True if the event is visible and has this entity's colour."""
+        return super()._event_filter(event) and self._split.bucket(event) == self.bucket
+
+
+async def _async_colour_entities(
+    hass: HomeAssistant,
+    config_entry: GoogleConfigEntry,
+    calendar_item: Calendar,
+    coordinator: CalendarSyncUpdateCoordinator,
+    parent: GoogleCalendarEntityDescription,
+    parent_unique_id: str,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+) -> list[GoogleCalendarColourEntity]:
+    """Create the colour entities of a calendar that is split by colour.
+
+    Named labels and Other get an entity up front. Unnamed labels get one
+    (named after the colour) once events use them. After the first refresh,
+    colour entities that are no longer wanted are removed from the registry.
+    """
+    try:
+        calendar = await config_entry.runtime_data.service.async_get_calendar(
+            calendar_item.id
+        )
+    except ApiException as err:
+        raise PlatformNotReady(str(err)) from err
+    split = ColourSplit(calendar, calendar_item.background_color)
+    unique_id_prefix = f"{parent_unique_id}{COLOUR_UNIQUE_ID_MARKER}"
+
+    def build(bucket: str, label: ColourLabel | None) -> GoogleCalendarColourEntity:
+        label_name = label.display_name if label else "Other"
+        description = dataclasses.replace(
+            parent,
+            key=f"{parent.key}{COLOUR_UNIQUE_ID_MARKER}{bucket}",
+            name=f"{parent.name} {label_name}",
+            entity_id=generate_entity_id(
+                ENTITY_ID_FORMAT, f"{parent.device_id} {label_name}", hass=hass
+            ),
+            read_only=True,
+            initial_color=label.background_color if label else parent.initial_color,
+        )
+        return GoogleCalendarColourEntity(
+            coordinator,
+            calendar_item.id,
+            description,
+            f"{unique_id_prefix}{bucket}",
+            split,
+            bucket,
+        )
+
+    colour_entities = {OTHER: build(OTHER, None)}
+    for label in split.named_labels:
+        colour_entities[label.id] = build(label.id, label)
+    cleaned_up = False
+
+    @callback
+    def async_update_colour_entities() -> None:
+        nonlocal cleaned_up
+        if not coordinator.last_update_success or coordinator.data is None:
+            return
+        now = dt_util.now()
+        used = {
+            split.bucket(event)
+            for event in coordinator.data.overlapping(
+                now + SYNC_EVENT_MIN_TIME, now + COLOUR_SCAN_MAX_TIME
+            )
+        }
+        new_entities = [
+            build(bucket, split.labels[bucket])
+            for bucket in used
+            if bucket not in colour_entities
+        ]
+        for entity in new_entities:
+            colour_entities[entity.bucket] = entity
+        if new_entities:
+            async_add_entities(new_entities)
+        if cleaned_up:
+            return
+        cleaned_up = True
+        wanted = {entity.unique_id for entity in colour_entities.values()}
+        entity_registry = er.async_get(hass)
+        for entity_entry in er.async_entries_for_config_entry(
+            entity_registry, config_entry.entry_id
+        ):
+            if (
+                entity_entry.unique_id.startswith(unique_id_prefix)
+                and entity_entry.unique_id not in wanted
+            ):
+                entity_registry.async_remove(entity_entry.entity_id)
+
+    config_entry.async_on_unload(
+        coordinator.async_add_listener(async_update_colour_entities)
+    )
+    return list(colour_entities.values())
 
 
 def _get_calendar_event(event: Event) -> CalendarEvent:

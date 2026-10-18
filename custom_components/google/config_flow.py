@@ -7,6 +7,7 @@ from typing import Any, override
 
 from gcal_sync.api import GoogleCalendarService
 from gcal_sync.exceptions import ApiException, ApiForbiddenException
+from gcal_sync.model import AccessRole
 import probatio
 
 from homeassistant.config_entries import (
@@ -17,6 +18,12 @@ from homeassistant.config_entries import (
 from homeassistant.core import callback
 from homeassistant.helpers import config_entry_oauth2_flow
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.selector import (
+    SelectOptionDict,
+    SelectSelector,
+    SelectSelectorConfig,
+    SelectSelectorMode,
+)
 
 from .api import (
     DEVICE_AUTH_CREDS,
@@ -30,6 +37,7 @@ from .api import (
 from .const import (
     CONF_CALENDAR_ACCESS,
     CONF_CREDENTIAL_TYPE,
+    CONF_SPLIT_CALENDARS,
     DEFAULT_FEATURE_ACCESS,
     DOMAIN,
     CredentialType,
@@ -263,22 +271,55 @@ class OptionsFlowHandler(OptionsFlowWithReload):
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Manage the options."""
+        options = self.config_entry.options
         if user_input is not None:
-            return self.async_create_entry(title="", data=user_input)
+            return self.async_create_entry(title="", data={**options, **user_input})
 
-        return self.async_show_form(
-            step_id="init",
-            data_schema=probatio.Schema(
+        schema: dict[Any, Any] = {
+            probatio.Required(
+                CONF_CALENDAR_ACCESS,
+                default=options.get(CONF_CALENDAR_ACCESS),
+            ): probatio.In(
                 {
-                    probatio.Required(
-                        CONF_CALENDAR_ACCESS,
-                        default=self.config_entry.options.get(CONF_CALENDAR_ACCESS),
-                    ): probatio.In(
-                        {
-                            "read_write": "Read/Write access (can create events)",
-                            "read_only": "Read-only access",
-                        }
-                    )
+                    "read_write": "Read/Write access (can create events)",
+                    "read_only": "Read-only access",
                 }
-            ),
-        )
+            )
+        }
+        if calendars := await self._async_splittable_calendars():
+            schema[
+                probatio.Optional(
+                    CONF_SPLIT_CALENDARS,
+                    default=[
+                        calendar_id
+                        for calendar_id in options.get(CONF_SPLIT_CALENDARS, [])
+                        if calendar_id in calendars
+                    ],
+                )
+            ] = SelectSelector(
+                SelectSelectorConfig(
+                    options=[
+                        SelectOptionDict(value=calendar_id, label=summary)
+                        for calendar_id, summary in calendars.items()
+                    ],
+                    multiple=True,
+                    mode=SelectSelectorMode.LIST,
+                )
+            )
+        return self.async_show_form(step_id="init", data_schema=probatio.Schema(schema))
+
+    async def _async_splittable_calendars(self) -> dict[str, str]:
+        """Return the calendars that can be split by colour, keyed by id."""
+        runtime_data = getattr(self.config_entry, "runtime_data", None)
+        if runtime_data is None:
+            return {}
+        try:
+            result = await runtime_data.service.async_list_calendars()
+        except ApiException as err:
+            _LOGGER.debug("Unable to list calendars: %s", err)
+            return {}
+        return {
+            calendar.id: calendar.summary
+            for calendar in result.items
+            if calendar.access_role != AccessRole.FREE_BUSY_READER
+        }

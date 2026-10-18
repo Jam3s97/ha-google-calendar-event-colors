@@ -50,7 +50,11 @@
     "step": {
       "init": {
         "data": {
-          "calendar_access": "Home Assistant access to Google Calendar"
+          "calendar_access": "Home Assistant access to Google Calendar",
+          "split_calendars": "Calendars to split by event colour"
+        },
+        "data_description": {
+          "split_calendars": "Each selected calendar gets one extra calendar entity per named colour label in Google Calendar, plus one for unnamed colours in use and an \"Other\" entity. Name colours in Google Calendar: edit an event, open the colour menu, and click the pencil next to a colour."
         }
       }
     }
