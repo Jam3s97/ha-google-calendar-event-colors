@@ -75,6 +75,7 @@ These changes make core's code run as a custom integration. They don't change ho
 | File | Change | Why |
 |--|--|--|
 | `manifest.json` | `name` is "Google Calendar (event colours)". Adds `version` and `issue_tracker`, and points `documentation` and `codeowners` at this repo. | Hassfest requires these for custom integrations. |
+| `manifest.json` | Sets the integration version to `1.0.0`. | Marks the first stable release after production use and feature/test validation. |
 | `manifest.json` | `requirements` uses ranges such as `gcal-sync>=9.2.0,<10` instead of core's `==` pins. | Hassfest rejects exact pins on packages Home Assistant depends on. The `<next major` cap blocks untested breaking releases. The dev and CI requirements still use core's exact versions. |
 | `translations/en.json` | Added. Generated from `strings.json` with the `[%key:...%]` references filled in from core's `homeassistant/strings.json`. | Core builds this file at release time, but a custom integration only loads `translations/`. |
 | `strings.json`, `quality_scale.yaml` | Kept as files. `quality_scale.yaml` is unchanged. `strings.json` only changes for features listed above, and `translations/en.json` is regenerated from it. | Kept as a reference for diffing against core. Home Assistant ignores both files for a custom integration. |
