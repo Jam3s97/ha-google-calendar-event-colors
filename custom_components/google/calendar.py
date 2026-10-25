@@ -68,6 +68,7 @@ from .colours import (
     unnamed_colours_in_use,
 )
 from .const import (
+    CONF_IGNORE_UNNAMED_COLOURS,
     CONF_SPLIT_CALENDARS,
     EVENT_END_DATE,
     EVENT_END_DATETIME,
@@ -635,8 +636,10 @@ async def _async_colour_entities(
 ) -> list[GoogleCalendarColourEntity]:
     """Create the colour entities of a calendar that is split by colour.
 
-    Named labels and Other get an entity up front. Unnamed labels get one
-    (named after the colour) once events use them. After the first refresh,
+    Named labels and the default colour's label get an entity up front, and so
+    does Other when the calendar's colour matches no label (new events with no
+    colour land there). Unnamed labels, and otherwise Other, get one once
+    events use them; unnamed labels are named after the colour. After the first refresh,
     colour entities that are no longer wanted are removed from the registry.
     """
     try:
@@ -658,7 +661,7 @@ async def _async_colour_entities(
                 ENTITY_ID_FORMAT, f"{parent.device_id} {label_name}", hass=hass
             ),
             # Events created on Other get no colour, so they only land on Other
-            # when the default colour's label is unnamed
+            # when the calendar's colour matches no label
             read_only=parent.read_only
             or (bucket == OTHER and split.default_label is not None),
             initial_color=label.background_color if label else parent.initial_color,
@@ -672,9 +675,12 @@ async def _async_colour_entities(
             bucket,
         )
 
-    colour_entities = {OTHER: build(OTHER, None)}
-    for label in split.named_labels:
-        colour_entities[label.id] = build(label.id, label)
+    colour_entities = {label.id: build(label.id, label) for label in split.named_labels}
+    if (default_label := split.default_label) is None:
+        colour_entities[OTHER] = build(OTHER, None)
+    elif default_label.id not in colour_entities:
+        colour_entities[default_label.id] = build(default_label.id, default_label)
+    ignore_unnamed = config_entry.options.get(CONF_IGNORE_UNNAMED_COLOURS, False)
     cleaned_up = False
 
     @callback
@@ -685,7 +691,7 @@ async def _async_colour_entities(
         now = dt_util.now()
         events = list(events_in_scan_window(coordinator.data, now))
         used = {split.bucket(event) for event in events}
-        usages = unnamed_colours_in_use(split, events, now)
+        usages = [] if ignore_unnamed else unnamed_colours_in_use(split, events, now)
         config_entry.runtime_data.unnamed_colours[calendar_item.id] = (
             calendar_item.summary,
             usages,
@@ -698,7 +704,7 @@ async def _async_colour_entities(
             usages,
         )
         new_entities = [
-            build(bucket, split.labels[bucket])
+            build(bucket, split.labels.get(bucket))
             for bucket in used
             if bucket not in colour_entities
         ]

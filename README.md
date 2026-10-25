@@ -47,6 +47,8 @@ In Home Assistant, go to **Settings > Devices & services > Google Calendar > Con
 
 If a calendar uses colours that have no name yet, you're asked whether to split now or wait (the default). Waiting is usually better: a colour without a name gets an entity named after the colour (such as `calendar.family_radicchio`), and while naming the colour later renames the entity, its entity ID stays the same.
 
+If you're happy with entities named after the colour, tick **Don't remind me to name colours**. The calendars are then split without asking, and no Repairs issue is raised.
+
 <p>
   <img src="docs/images/02-configure-split.png" alt="Home Assistant options with Calendars to split by event colour" width="400">
   <img src="docs/images/03-colours-without-a-name.png" alt="Colours without a name step offering Split now or Wait" width="400">
@@ -61,9 +63,9 @@ For a calendar called "Family", alongside the existing `calendar.family`:
 | Entity | Events |
 |--|--|
 | `calendar.family_child1`, `calendar.family_medical`, … | One per named colour: the events with that colour. |
-| The entity of the calendar's own colour | Also gets the events left on the calendar's default colour, since that's how they look in Google. For example, if the calendar is Grape and Grape is named "Everyone", uncoloured events show on `calendar.family_everyone`. |
+| The entity of the calendar's own colour | Also gets the events left on the calendar's default colour, since that's how they look in Google. For example, if the calendar is Grape and Grape is named "Everyone", uncoloured events show on `calendar.family_everyone`; if Grape has no name, on `calendar.family_grape`. |
 | `calendar.family_radicchio`, … | Colours without a name that events use, named after the colour. |
-| `calendar.family_other` | Anything else, such as uncoloured events when the calendar's own colour has no name. |
+| `calendar.family_other` | Only created when something lands there: uncoloured events when the calendar has a custom colour (not one from Google's palette), or events with a colour the integration doesn't recognise. |
 
 Every event appears on exactly one colour entity. `calendar.family` is unchanged and still shows everything, so on a dashboard use either `calendar.family` or its colour entities, not both, or each event shows twice. Each colour entity starts with its Google colour as its entity colour, which Home Assistant's calendar page uses.
 
@@ -94,9 +96,9 @@ calendar_names:
 
 *Daylight Calendar Card with five of the colour entities, using the card's own colours.*
 
-When colours in use have no name, a Repairs issue (**Settings > System > Repairs**) lists them with example events, to help you find and name them. After naming colours or changing them in Google, reload the integration to update the entities.
+When colours in use have no name, a Repairs issue (**Settings > System > Repairs**) lists them with example events, to help you find and name them. After naming colours or changing them in Google, reload the integration to update the entities; the issue offers a button that does it. If you're happy with the colour names, choose **Don't remind me to name colours** in the issue, or tick it under **Configure**.
 
-<img src="docs/images/04-repairs-issue.png" alt="Repairs issue listing colours without a name with example events" width="520">
+<img src="docs/images/04-repairs-issue.png" alt="Repairs issue listing colours without a name with example events, and buttons to reload or stop the reminders" width="520">
 
 ### Creating events with a colour
 
@@ -107,7 +109,7 @@ Home Assistant's create-event dialog has no colour field, so **choose the colour
 *Home Assistant's Add event dialog: picking a colour entity in the Calendar list sets the event's colour in Google.*
 
 - Events created on `calendar.family`, or on the entity of the calendar's own colour, get no colour, so they follow the calendar's default colour.
-- `calendar.family_other` can't create events when the calendar's own colour has a name (an uncoloured event would show on that colour's entity instead).
+- `calendar.family_other` can only create events when the calendar has a custom colour (otherwise an uncoloured event would show on the entity of the calendar's own colour instead).
 - Deleting an event from a colour entity deletes it from the Google calendar.
 
 ### Limitations

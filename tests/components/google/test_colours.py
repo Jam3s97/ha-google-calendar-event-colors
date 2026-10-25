@@ -11,12 +11,17 @@ from gcal_sync.model import CalendarBasic, Event
 import pytest
 
 from custom_components.google.colours import OTHER, ColourSplit, unnamed_colours_in_use
-from custom_components.google.const import CONF_SPLIT_CALENDARS, DOMAIN
+from custom_components.google.const import (
+    CONF_IGNORE_UNNAMED_COLOURS,
+    CONF_SPLIT_CALENDARS,
+    DOMAIN,
+)
 from homeassistant.components.calendar import CalendarEntityFeature
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers import entity_registry as er, issue_registry as ir
+from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -142,16 +147,17 @@ def test_bucket_by_label_then_color_id_then_default() -> None:
 
 
 def test_bucket_default_colour_unnamed() -> None:
-    """Test events with no colour go to Other when the default label is unnamed."""
+    """Test events with no colour go to the default colour even if it's unnamed."""
     split = split_for(None)
-    assert split.default_label is None
-    assert bucket_of(split, event("no-colour", 1)) == OTHER
+    assert split.default_label is split.labels[LABEL_BASIL]
+    assert bucket_of(split, event("no-colour", 1)) == LABEL_BASIL
     assert bucket_of(split, event("explicit", 1, colorId="10")) == LABEL_BASIL
 
 
 def test_bucket_custom_calendar_colour() -> None:
     """Test a calendar colour outside the palette sends no-colour events to Other."""
     split = split_for("Everyone", calendar_color="#123456")
+    assert split.default_label is None
     assert bucket_of(split, event("no-colour", 1)) == OTHER
 
 
@@ -207,8 +213,9 @@ async def test_colour_entities(
     )
     # The real calendar has no colour attribute
     assert "color" not in hass.states.get(TEST_API_ENTITY).attributes
-    # Events created with no colour land on Everyone (the default colour), not
-    # Other, so Other can't create events
+    # Other is created for the unknown label. Events created with no colour
+    # land on Everyone (the default colour), not Other, so Other can't create
+    # events
     state = hass.states.get(f"{TEST_API_ENTITY}_other")
     assert state.attributes.get("supported_features", 0) == 0
     assert state.attributes["color"] == "#16a765"
@@ -327,7 +334,11 @@ async def test_options_flow_split_calendars(
 
     result = await hass.config_entries.options.async_init(config_entry.entry_id)
     assert result["type"] is FlowResultType.FORM
-    assert set(result["data_schema"].schema) == {"calendar_access", "split_calendars"}
+    assert set(result["data_schema"].schema) == {
+        "calendar_access",
+        "split_calendars",
+        "ignore_unnamed_colours",
+    }
 
     with patch("custom_components.google.async_setup_entry", return_value=True):
         result = await hass.config_entries.options.async_configure(
@@ -342,6 +353,7 @@ async def test_options_flow_split_calendars(
     assert config_entry.options == {
         "calendar_access": "read_write",
         "split_calendars": [CALENDAR_ID],
+        "ignore_unnamed_colours": False,
     }
 
 
@@ -412,17 +424,78 @@ async def test_create_event_writes_label(
     assert query.get("eventLabelVersion") == ("1" if expected_label else None)
 
 
-async def test_other_writable_when_default_colour_unnamed(
+async def test_unnamed_default_colour(
     hass: HomeAssistant,
+    hass_client: ClientSessionGenerator,
     aioclient_mock: AiohttpClientMocker,
     mock_calendar_get,
     mock_events_list_items,
     component_setup: ComponentSetup,
 ) -> None:
-    """Test Other creates uncoloured events when they would land on Other."""
+    """Test events with no colour go to an unnamed default colour, not Other."""
     mock_calendar_get(CALENDAR_ID, calendar_labels(basil_name=None))
-    mock_events_list_items(EVENTS)
+    mock_events_list_items([raw for raw in EVENTS if raw["id"] != "unknown-label"])
     assert await component_setup()
+
+    entity_id = f"{TEST_API_ENTITY}_basil"
+    assert await get_event_summaries(hass_client, entity_id) == [
+        "basil-explicit",
+        "no-colour",
+    ]
+    # Nothing matches no colour, so there's no Other
+    assert hass.states.get(f"{TEST_API_ENTITY}_other") is None
+
+    body, query = await create_event(hass, aioclient_mock, "calendar", entity_id)
+    assert "eventLabelId" not in body
+    assert "eventLabelVersion" not in query
+
+
+async def test_other_removed_when_unused(
+    hass: HomeAssistant,
+    entity_registry: er.EntityRegistry,
+    config_entry: MockConfigEntry,
+    mock_calendar_get,
+    mock_events_list_items,
+    component_setup: ComponentSetup,
+) -> None:
+    """Test an Other entity from an earlier version is removed when it's empty."""
+    config_entry.add_to_hass(hass)
+    other = entity_registry.async_get_or_create(
+        "calendar",
+        DOMAIN,
+        f"{PARENT_UNIQUE_ID}-colour-{OTHER}",
+        config_entry=config_entry,
+    )
+    mock_calendar_get(CALENDAR_ID, calendar_labels())
+    mock_events_list_items([raw for raw in EVENTS if raw["id"] != "unknown-label"])
+    assert await component_setup()
+
+    assert entity_registry.async_get(other.entity_id) is None
+
+
+async def test_other_writable_with_custom_calendar_colour(
+    hass: HomeAssistant,
+    hass_client: ClientSessionGenerator,
+    aioclient_mock: AiohttpClientMocker,
+    test_api_calendar: dict[str, Any],
+    mock_calendars_list: ApiResult,
+    mock_calendar_get,
+    mock_events_list_items,
+    component_setup: ComponentSetup,
+) -> None:
+    """Test Other holds and creates uncoloured events on a custom-colour calendar."""
+    # The mocker answers with the first matching mock, so replace the list
+    aioclient_mock.clear_requests()
+    mock_calendars_list(
+        {"items": [{**test_api_calendar, "backgroundColor": "#123456"}]}
+    )
+    mock_calendar_get(CALENDAR_ID, calendar_labels())
+    mock_events_list_items([raw for raw in EVENTS if raw["id"] != "unknown-label"])
+    assert await component_setup()
+
+    assert await get_event_summaries(hass_client, f"{TEST_API_ENTITY}_other") == [
+        "no-colour"
+    ]
 
     state = hass.states.get(f"{TEST_API_ENTITY}_other")
     assert state.attributes["supported_features"] & CalendarEntityFeature.CREATE_EVENT
@@ -538,7 +611,7 @@ async def test_unnamed_colours_issue(
     issues = google_issues(hass)
     assert len(issues) == 1
     issue = issues[0]
-    assert not issue.is_fixable
+    assert issue.is_fixable
     assert issue.translation_key == "unnamed_colours"
     assert issue.translation_placeholders["calendar"] == (
         "We are, we are, a... Test Calendar"
@@ -677,3 +750,130 @@ async def test_options_flow_unnamed_colours_step(
         await hass.async_block_till_done()
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert config_entry.options[CONF_SPLIT_CALENDARS] == expected_split
+
+
+@pytest.mark.parametrize(
+    "config_entry_options",
+    [{CONF_SPLIT_CALENDARS: [CALENDAR_ID], CONF_IGNORE_UNNAMED_COLOURS: True}],
+)
+async def test_ignore_unnamed_colours_option(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_calendar_get,
+    mock_events_list_items,
+    component_setup: ComponentSetup,
+) -> None:
+    """Test the option stops the issue and the options form's note."""
+    mock_calendar_get(CALENDAR_ID, calendar_labels())
+    mock_events_list_items(EVENTS)
+    assert await component_setup()
+
+    assert google_issues(hass) == []
+    # Unnamed colours still get their entity
+    assert hass.states.get(f"{TEST_API_ENTITY}_radicchio")
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    assert result["description_placeholders"]["unnamed_colours"] == ""
+
+
+@pytest.mark.parametrize("config_entry_options", [None])
+async def test_options_flow_ignore_unnamed_colours_skips_step(
+    hass: HomeAssistant,
+    config_entry: MockConfigEntry,
+    mock_calendar_get,
+    mock_events_list_items,
+    component_setup: ComponentSetup,
+) -> None:
+    """Test ticking the option splits without asking about unnamed colours."""
+    mock_events_list_items(EVENTS)
+    assert await component_setup()
+    mock_calendar_get(CALENDAR_ID, calendar_labels())
+
+    result = await hass.config_entries.options.async_init(config_entry.entry_id)
+    with patch("custom_components.google.async_setup_entry", return_value=True):
+        result = await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            user_input={
+                "calendar_access": "read_write",
+                "split_calendars": [CALENDAR_ID],
+                "ignore_unnamed_colours": True,
+            },
+        )
+        await hass.async_block_till_done()
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    assert config_entry.options[CONF_SPLIT_CALENDARS] == [CALENDAR_ID]
+    assert config_entry.options[CONF_IGNORE_UNNAMED_COLOURS] is True
+
+
+async def start_fix_flow(
+    hass: HomeAssistant, hass_client: ClientSessionGenerator, issue_id: str
+) -> tuple[Any, dict[str, Any]]:
+    """Start the issue's fix flow, returning the client and the first step."""
+    assert await async_setup_component(hass, "repairs", {})
+    client = await hass_client()
+    response = await client.post(
+        "/api/repairs/issues/fix", json={"handler": DOMAIN, "issue_id": issue_id}
+    )
+    assert response.status == HTTPStatus.OK
+    return client, await response.json()
+
+
+@pytest.mark.parametrize(
+    ("menu_option", "expected_ignore"),
+    [("reload", None), ("ignore_unnamed_colours", True)],
+)
+async def test_unnamed_colours_fix_flow(
+    hass: HomeAssistant,
+    hass_client: ClientSessionGenerator,
+    config_entry: MockConfigEntry,
+    mock_calendar_get,
+    mock_events_list_items,
+    component_setup: ComponentSetup,
+    menu_option: str,
+    expected_ignore: bool | None,
+) -> None:
+    """Test the fix flow reloads, or turns the reminders off and reloads."""
+    mock_calendar_get(CALENDAR_ID, calendar_labels())
+    mock_events_list_items(EVENTS)
+    assert await component_setup()
+    (issue,) = google_issues(hass)
+
+    client, step = await start_fix_flow(hass, hass_client, issue.issue_id)
+    assert step["type"] == "menu"
+    assert step["menu_options"] == ["reload", "ignore_unnamed_colours"]
+    assert "**Radicchio**" in step["description_placeholders"]["colours"]
+
+    with patch.object(hass.config_entries, "async_schedule_reload") as reload:
+        response = await client.post(
+            f"/api/repairs/issues/fix/{step['flow_id']}",
+            json={"next_step_id": menu_option},
+        )
+        assert response.status == HTTPStatus.OK
+        assert (await response.json())["type"] == "create_entry"
+    reload.assert_called_once_with(config_entry.entry_id)
+    assert config_entry.options.get(CONF_IGNORE_UNNAMED_COLOURS) is expected_ignore
+
+
+async def test_ignore_from_fix_flow_removes_issue(
+    hass: HomeAssistant,
+    hass_client: ClientSessionGenerator,
+    config_entry: MockConfigEntry,
+    mock_calendar_get,
+    mock_events_list_items,
+    component_setup: ComponentSetup,
+) -> None:
+    """Test turning the reminders off removes the issue once the entry reloads."""
+    mock_calendar_get(CALENDAR_ID, calendar_labels())
+    mock_events_list_items(EVENTS)
+    assert await component_setup()
+    (issue,) = google_issues(hass)
+
+    client, step = await start_fix_flow(hass, hass_client, issue.issue_id)
+    await client.post(
+        f"/api/repairs/issues/fix/{step['flow_id']}",
+        json={"next_step_id": "ignore_unnamed_colours"},
+    )
+    await hass.async_block_till_done()
+
+    assert config_entry.state is ConfigEntryState.LOADED
+    assert google_issues(hass) == []

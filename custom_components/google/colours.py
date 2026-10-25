@@ -10,8 +10,9 @@ Google Calendar has two event colour mechanisms:
   parameter `eventLabelVersion=1`; without it, `eventLabelId` is ignored.
 
 Events left on the calendar's default colour carry neither. They are bucketed
-with the label that matches the calendar's default colour when that label is
-named, otherwise with "Other".
+with the label that matches the calendar's default colour, named or not.
+"Other" holds what matches no label: events with no colour on a calendar with
+a custom colour, and events whose label or colorId is unknown.
 """
 
 from collections.abc import Iterable
@@ -249,11 +250,10 @@ class ColourSplit:
         default_colour = _BY_CALENDAR_COLOR.get(
             (calendar_background_color or "").lower()
         )
-        default_label = by_colour.get(default_colour.name) if default_colour else None
         self.default_label: ColourLabel | None = (
-            default_label if default_label and default_label.name else None
+            by_colour.get(default_colour.name) if default_colour else None
         )
-        """The named label that events on the calendar's default colour belong to."""
+        """The label that events on the calendar's default colour belong to."""
 
     @property
     def named_labels(self) -> list[ColourLabel]:

@@ -45,6 +45,7 @@ from .colours import (
 from .const import (
     CONF_CALENDAR_ACCESS,
     CONF_CREDENTIAL_TYPE,
+    CONF_IGNORE_UNNAMED_COLOURS,
     CONF_SPLIT_CALENDARS,
     DEFAULT_FEATURE_ACCESS,
     DOMAIN,
@@ -297,7 +298,8 @@ class OptionsFlowHandler(OptionsFlowWithReload):
                 for calendar_id in user_input.get(CONF_SPLIT_CALENDARS, [])
                 if calendar_id not in options.get(CONF_SPLIT_CALENDARS, [])
             ]
-            self._unnamed = await self._async_unnamed_colours(newly_split)
+            if not self._options.get(CONF_IGNORE_UNNAMED_COLOURS):
+                self._unnamed = await self._async_unnamed_colours(newly_split)
             if self._unnamed:
                 return await self.async_step_unnamed_colours()
             return self.async_create_entry(title="", data=self._options)
@@ -334,6 +336,12 @@ class OptionsFlowHandler(OptionsFlowWithReload):
                     mode=SelectSelectorMode.LIST,
                 )
             )
+            schema[
+                probatio.Optional(
+                    CONF_IGNORE_UNNAMED_COLOURS,
+                    default=options.get(CONF_IGNORE_UNNAMED_COLOURS, False),
+                )
+            ] = bool
         return self.async_show_form(
             step_id="init",
             data_schema=probatio.Schema(schema),
@@ -445,7 +453,9 @@ class OptionsFlowHandler(OptionsFlowWithReload):
     def _describe_split_calendars(self, split_calendar_ids: list[str]) -> str:
         """Return a note on unnamed colours in calendars that are already split."""
         runtime_data = getattr(self.config_entry, "runtime_data", None)
-        if runtime_data is None:
+        if runtime_data is None or self.config_entry.options.get(
+            CONF_IGNORE_UNNAMED_COLOURS
+        ):
             return ""
         lines = [
             f"- **{name}**: " + ", ".join(usage.label.display_name for usage in usages)

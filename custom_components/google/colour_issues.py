@@ -43,6 +43,7 @@ def async_update_unnamed_colours_issue(
 
     The issue id includes the set of unnamed labels, so an issue the user
     ignored comes back as a new issue when another unnamed colour is used.
+    Its fix flow (see repairs.py) reloads the entry or turns the reminders off.
     """
     prefix = _calendar_prefix(entry_id, parent_unique_id)
     issue_id = None
@@ -58,7 +59,8 @@ def async_update_unnamed_colours_issue(
         hass,
         DOMAIN,
         issue_id,
-        is_fixable=False,
+        is_fixable=True,
+        data={"entry_id": entry_id},
         severity=ir.IssueSeverity.WARNING,
         translation_key="unnamed_colours",
         translation_placeholders={

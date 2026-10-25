@@ -51,10 +51,12 @@
       "init": {
         "data": {
           "calendar_access": "Home Assistant access to Google Calendar",
-          "split_calendars": "Calendars to split by event colour"
+          "split_calendars": "Calendars to split by event colour",
+          "ignore_unnamed_colours": "Don't remind me to name colours"
         },
         "data_description": {
-          "split_calendars": "Each selected calendar gets one extra calendar entity per named colour label in Google Calendar, plus one for unnamed colours in use and an \"Other\" entity. Name colours in Google Calendar: edit an event, open the colour menu, and click the pencil next to a colour."
+          "split_calendars": "Each selected calendar gets one extra calendar entity per colour: one for each named colour label in Google Calendar, plus one named after the colour for unnamed colours in use. Events with no colour go to the calendar's default colour. An \"Other\" entity appears only for events that match no colour, such as events with no colour on a calendar with a custom colour. Name colours in Google Calendar: edit an event, open the colour menu, and click the pencil next to a colour.",
+          "ignore_unnamed_colours": "Tick this if you're happy with entities named after the colour. Home Assistant stops raising a Repairs issue and asking about colours without a name."
         },
         "description": "Choose which calendars to split into one calendar entity per event colour.{unnamed_colours}"
       },
@@ -160,7 +162,18 @@
   "issues": {
     "unnamed_colours": {
       "title": "{calendar}: colours without a name",
-      "description": "The **{calendar}** calendar is split by event colour, and these colours have no name in Google Calendar, so their calendar entities are named after the colour:\n\n{colours}\n\nTo name a colour: in Google Calendar on the web, open one of the events above, open the colour menu and select the pencil next to the colour. Then reload the Google Calendar integration. The entity is renamed; its entity ID stays the same, and you can change it in the entity's settings.\n\nIf you're happy with the colour names, ignore this. It comes back if another colour without a name starts being used."
+      "fix_flow": {
+        "step": {
+          "init": {
+            "title": "{calendar}: colours without a name",
+            "description": "The **{calendar}** calendar is split by event colour, and these colours have no name in Google Calendar, so their calendar entities are named after the colour:\n\n{colours}\n\nTo name a colour: in Google Calendar on the web, open one of the events above, open the colour menu and select the pencil next to the colour. The entity is renamed; its entity ID stays the same, and you can change it in the entity's settings.\n\nIf you're happy with the colour names, choose **Don't remind me**. You can turn the reminders back on in the integration's options.",
+            "menu_options": {
+              "reload": "I've named them: reload the integration",
+              "ignore_unnamed_colours": "Don't remind me to name colours"
+            }
+          }
+        }
+      }
     }
   }
 }

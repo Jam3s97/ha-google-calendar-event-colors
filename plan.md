@@ -36,8 +36,9 @@ Status, 2026-10-18: repo setup (section 0), the read spike and the write spike a
 - The user names colours in Google Calendar (labels such as "Child1", "Medical", "Everyone"). The integration creates **one virtual calendar entity per label automatically**, named after the label.
   - Named label → entity named after the label: `calendar.family_child1`, `calendar.family_medical`.
   - Unnamed label that is in use → entity named after the colour (`calendar.family_radicchio`). The integration suggests naming it (section 6).
-  - Events with no colour **inherit the calendar's default colour**. They go to the entity for that colour's label when the label is named; for example, if the calendar is Grape and Grape is named "Everyone", they go to `calendar.family_everyone`, together with events explicitly set to Grape. That matches how they look in Google.
-  - If the default colour's label is unnamed, or the calendar uses a custom colour, events with no colour go to **"Other"**: `calendar.family_other`.
+  - Events with no colour **inherit the calendar's default colour**. They go to the entity for that colour's label, named or not; for example, if the calendar is Grape and Grape is named "Everyone", they go to `calendar.family_everyone` (or `calendar.family_grape` if unnamed), together with events explicitly set to Grape. That matches how they look in Google.
+  - If the calendar uses a custom colour, events with no colour go to **"Other"**: `calendar.family_other`. Other also catches unknown labels and colours, and is only created when something can land there (decision 2026-10-25; it used to be created for every split calendar, which gave named-default calendars a second, empty entity for the default colour).
+  - Users who are happy with colour names can tick **Don't remind me to name colours** (options, or from the Repairs issue) to stop the reminders (section 6).
 - Every event appears on exactly one virtual entity, so no event is ever dropped.
 - Each virtual entity's colour (shown by cards that support entity colours) is its label's colour.
 - The real `calendar.family` entity stays as it is, unfiltered.
@@ -67,7 +68,7 @@ Status, 2026-10-18: repo setup (section 0), the read spike and the write spike a
 
 ### Design
 
-- Bucket key for an event: `event_label_id`, else `color_id` mapped to its label (via the one-to-one mapping for the 11 legacy colours), else the **calendar's default colour** mapped to its label (if that label is named), else "Other".
+- Bucket key for an event: `event_label_id`, else `color_id` mapped to its label (via the one-to-one mapping for the 11 legacy colours), else the **calendar's default colour** mapped to its label (named or not), else "Other".
 - The calendar's default colour comes from `calendarList` (`colorId` 1–24 in the legacy *calendar* palette, which core already fetches). It maps to the label colours via a built-in table (reference below). For example, calendar colour 23 (`#cd74e6`) = Grape = label colour `#8e24aa`. A custom calendar colour (`backgroundColor` not in the palette) means no match, so these events go to "Other".
 - The calendar colour is **set per user** in Google: each account picks its own colour for a shared calendar. The integration uses the colour of the account HA is logged in with; document this.
 - Entity unique ID: `<calendar unique id>-label-<label id>` (and `-other`). It's keyed on the label ID, not the name, so renaming a label in Google updates the entity's name but keeps the entity (HA keeps its entity ID).
@@ -126,7 +127,7 @@ Re-run **with** `eventLabelVersion=1`:
 - When creating: set `event_label_id` on the gcal_sync `Event` to the entity's label ID. Every label entity gets `CREATE_EVENT`, including the newer colours.
 - Sending the parameter: subclass `GoogleCalendarService` in `api.py` and override `async_create_event`. When `event.event_label_id` is set, post the same body with `params={"eventLabelVersion": "1"}` through the integration's own `ApiAuthImpl`; otherwise call the parent. Keep a reference to the auth object in the subclass instead of using gcal_sync's private `_auth`. `store_service.async_add_event` just calls `async_create_event`, so both the entity create and `google.create_event` pick this up. Track it in DIFFERENCES_FROM_CORE.md, and offer gcal_sync an upstream change so the override can be dropped later.
 - "Other", and the entity for the label that matches the calendar's default colour, both write **no label** (and so no parameter), so the event follows the calendar's default colour, as if it had been created in Google without picking a colour.
-- When the default colour's label is named, an uncoloured event lands on that label's entity, not on Other, so **Other is read-only** in that case. It's writable only when the default colour's label is unnamed (then uncoloured events do land on Other).
+- When the calendar's colour matches a label, an uncoloured event lands on that label's entity, not on Other, so **Other is read-only** in that case. It's writable only when the calendar has a custom colour (then uncoloured events do land on Other).
 - Delete: core's delete works unchanged on colour entities, because they share the real calendar's coordinator and store. **Update: core has no update-event support**, so there is none here either. Changing an event's colour is out of scope for v1 (it would move the event to a different virtual entity); do it in Google. If update is added later, use PATCH without the parameter so the event keeps its label.
 - After writing, refresh the shared coordinator so the event appears on the right entity.
 - Test the write path against a **separate test calendar in the same Google account**, never the family calendar.
