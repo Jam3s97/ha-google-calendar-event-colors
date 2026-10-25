@@ -50,7 +50,7 @@ If a calendar uses colours that have no name yet, you're asked whether to split 
 If you're happy with entities named after the colour, tick **Don't remind me to name colours**. The calendars are then split without asking, and no Repairs issue is raised.
 
 <p>
-  <img src="docs/images/02-configure-split.png" alt="Home Assistant options with Calendars to split by event colour" width="400">
+  <img src="docs/images/02-configure-split.png" alt="Home Assistant options with Calendars to split by event colour and Don't remind me to name colours" width="400">
   <img src="docs/images/03-colours-without-a-name.png" alt="Colours without a name step offering Split now or Wait" width="400">
 </p>
 
