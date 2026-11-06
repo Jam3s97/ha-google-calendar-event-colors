@@ -82,12 +82,47 @@ jobs:
           echo "HA_VERSION=${version}" >> "$GITHUB_ENV"
           echo "Testing against Home Assistant ${version}" >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Find the test harness for that version
+        # Each pytest-homeassistant-custom-component release pins one exact
+        # Home Assistant version, and usually comes out a few days after it.
+        # Without a matching release, an unpinned pip install backtracks to an
+        # ancient harness (old pytest that crashes on this Python), so look the
+        # release up and stop with a clear message if there isn't one yet.
+        run: |
+          harness=$(python3 - <<'EOF'
+          import json, os, urllib.request
+
+          def get(url):
+              with urllib.request.urlopen(url) as response:
+                  return json.load(response)
+
+          package = "https://pypi.org/pypi/pytest-homeassistant-custom-component"
+          pin = f"homeassistant=={os.environ['HA_VERSION']}"
+          releases = sorted(
+              (files[0]["upload_time"], version)
+              for version, files in get(f"{package}/json")["releases"].items()
+              if files
+          )
+          # The matching release is among the newest few
+          for _, version in reversed(releases[-10:]):
+              if pin in (get(f"{package}/{version}/json")["info"]["requires_dist"] or []):
+                  print(version)
+                  break
+          EOF
+          )
+          if [ -z "${harness}" ]; then
+            echo "pytest-homeassistant-custom-component has no release for Home Assistant ${HA_VERSION} yet, so the tests did not run. Re-run this workflow in a few days." >> "$GITHUB_STEP_SUMMARY"
+            echo "::error::No pytest-homeassistant-custom-component release for Home Assistant ${HA_VERSION} yet: re-run in a few days"
+            exit 1
+          fi
+          echo "HARNESS_VERSION=${harness}" >> "$GITHUB_ENV"
+          echo "Test harness: pytest-homeassistant-custom-component ${harness}" >> "$GITHUB_STEP_SUMMARY"
+
       - name: Install requirements
         run: |
           python3 -m pip install -r requirements_common.txt
           python3 -m pip install -r requirements_dev.txt
-          # pip picks the newest test harness release that pins this version
-          python3 -m pip install --upgrade "homeassistant==${HA_VERSION}" pytest-homeassistant-custom-component
+          python3 -m pip install --upgrade "homeassistant==${HA_VERSION}" "pytest-homeassistant-custom-component==${HARNESS_VERSION}"
           python3 -m pip show homeassistant pytest-homeassistant-custom-component | grep -E "^(Name|Version)"
 
       - name: Run tests
