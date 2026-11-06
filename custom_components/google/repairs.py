@@ -22,6 +22,7 @@ class UnnamedColoursRepairFlow(RepairsFlow):
     ) -> RepairsFlowResult:
         """Show the unnamed colours, with a choice of what to do."""
         return self.async_show_menu(
+            step_id="init",
             menu_options=["reload", "ignore_unnamed_colours"],
             description_placeholders=self._placeholders,
         )
