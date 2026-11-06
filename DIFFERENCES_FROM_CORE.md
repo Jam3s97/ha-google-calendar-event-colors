@@ -85,9 +85,9 @@ These changes make core's code run as a custom integration. They don't change ho
 
 | File | Change | Why |
 |--|--|--|
-| `tests/components/google/*.py` | `homeassistant.components.google` becomes `custom_components.google`, in imports and in `patch()` targets. Core's test helpers (`pytest_homeassistant.*` since 2026.11.0, `tests.*` before) become `pytest_homeassistant_custom_component.*`. Imports re-sorted by ruff. | The tests have to run outside core. |
-| `tests/conftest.py`, `pytest.ini`, `tests/__init__.py`, `tests/components/__init__.py` | Added. | They turn on custom integrations and asyncio mode for pytest. |
-| `tests/conftest.py` | Defines the `snapshot` fixture with `HomeAssistantSnapshotExtension`, as core's `tests/conftest.py` does. | pytest-homeassistant-custom-component sets this from a plugin, so it only applies if that plugin loads after syrupy. In CI syrupy loaded last, looked in `__snapshots__/` and failed `test_diagnostics` with "Snapshot does not exist". |
+| `tests/components/google/*.py` | `homeassistant.components.google` becomes `custom_components.google`, in imports and in `patch()` targets. Core's test helpers (`pytest_homeassistant.*`) are used unchanged, from the `pytest-homeassistant` package. Imports re-sorted by ruff. | The tests have to run outside core. |
+| `tests/conftest.py`, `pytest.ini`, `tests/__init__.py`, `tests/components/__init__.py` | Added. | They set asyncio mode for pytest, and `-p no:respx` so Home Assistant's httpx alias is installed before respx is imported (as `pytest-homeassistant`'s README asks). |
+| `tests/conftest.py` | Defines the `snapshot` fixture with `HomeAssistantSnapshotExtension`, as core's `tests/conftest.py` does. | pytest-homeassistant sets this from a plugin, so it only applies if that plugin loads after syrupy. In CI syrupy loaded last, looked in `__snapshots__/` and failed `test_diagnostics` with "Snapshot does not exist". |
 | `tests/ruff.toml` | Core's test ruff config, with first-party packages adjusted. | Matches how core lints its tests. |
 | `tests/components/google/test_colours.py` | **New.** Tests for the colour split rule, the colour entities, rename stability, stale-entity clean-up, the options flow, creating (label in the body, `eventLabelVersion=1` in the URL only when writing a label) and deleting events on colour entities, unnamed-colour detection, the Repairs issue (including that an ignored issue returns for a new colour) and its fix flow, the options flow's unnamed-colours step, the "Don't remind me" option, an unnamed default colour, when Other is created or removed, and the `color` attribute. | Tests for the colour entities. |
 
@@ -103,7 +103,7 @@ The unmodified copies form a side branch: each one is core's files at a tag, com
    git commit -am "Import core google integration from HA <tag> (unmodified)"
    ```
 3. Merge it into a working branch: `git merge --no-ff core/<tag>`. Resolve conflicts by keeping core's change and re-applying ours as listed above.
-4. In the tests, rename core's test helper imports (`pytest_homeassistant.*`) and `homeassistant.components.google` as described under **Test changes**. New core test code arrives through the merge, so check the whole files, not only the conflicts.
+4. In the tests, rename `homeassistant.components.google` as described under **Test changes**. New core test code arrives through the merge, so check the whole files, not only the conflicts.
 5. Regenerate `translations/en.json` from `strings.json`, filling the `[%key:...%]` references from core's `homeassistant/strings.json` at the new tag.
-6. Update this file's **Base** section, the version pins in `requirements_dev.txt` (Home Assistant, the integration's requirements, and the `pytest-homeassistant-custom-component` release that pins that Home Assistant version), `hacs.json`, and `CLAUDE.md`.
+6. Update this file's **Base** section, the version pins in `requirements_dev.txt` (Home Assistant, the integration's requirements, and `pytest-homeassistant`, which has the same version number as Home Assistant), `hacs.json`, and `CLAUDE.md`.
 7. Merge the pull request with a merge commit, not squash or rebase, so the unmodified copy stays in the history.

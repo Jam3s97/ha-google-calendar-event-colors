@@ -24,7 +24,7 @@ extend-ignore = [
 known-first-party = [
     "homeassistant",
     "custom_components",
-    "pytest_homeassistant_custom_component",
+    "pytest_homeassistant",
     "script",
 ]
 known-third-party = [

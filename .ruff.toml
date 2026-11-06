@@ -225,7 +225,7 @@ mark-parentheses = false
 
 [lint.isort]
 force-sort-within-sections = true
-known-first-party = ["homeassistant", "custom_components", "pytest_homeassistant_custom_component"]
+known-first-party = ["homeassistant", "custom_components", "pytest_homeassistant"]
 combine-as-imports = true
 split-on-trailing-comma = false
 
