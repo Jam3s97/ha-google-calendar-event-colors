@@ -10,11 +10,13 @@ if [[ ! -d "${PWD}/config" ]]; then
     hass --config "${PWD}/config" --script ensure_config
 fi
 
-# Set the path to custom_components
-## This let's us have the structure we want <root>/custom_components/google
-## while at the same time have Home Assistant configuration inside <root>/config
-## without resulting to symlinks.
-export PYTHONPATH="${PYTHONPATH}:${PWD}/custom_components"
+# Link <root>/custom_components/google into the config dir, where Home
+# Assistant looks for custom integrations. Without it, the built-in google
+# integration loads instead. (Adding <root>/custom_components to PYTHONPATH
+# doesn't work: Home Assistant imports the custom_components package from the
+# config dir.)
+mkdir -p "${PWD}/config/custom_components"
+ln -sfn "${PWD}/custom_components/google" "${PWD}/config/custom_components/google"
 
 # Start Home Assistant
 hass --config "${PWD}/config" --debug

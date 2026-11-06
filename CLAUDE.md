@@ -4,13 +4,13 @@ A custom version of Home Assistant's core `google` (Google Calendar) integration
 
 ## Rules
 
-- **Track every difference from core.** `custom_components/google/` is core's integration at HA 2026.10.1, and commit `6ce6cd2` is the unmodified copy (`git diff 6ce6cd2 -- custom_components/google tests/components/google`). Any change to the integration or its tests must update [DIFFERENCES_FROM_CORE.md](DIFFERENCES_FROM_CORE.md) in the same commit: add a row to the Feature, Packaging or Test section saying what changed, in which files, and why. That file is how the changes get re-applied when re-basing on a newer core version.
+- **Track every difference from core.** `custom_components/google/` is core's integration at HA 2026.11.0, and commit `2555cde` is the unmodified copy (`git diff 2555cde -- custom_components/google tests/components/google`). Merge re-base pull requests with a merge commit, so the unmodified copy stays in the history. Any change to the integration or its tests must update [DIFFERENCES_FROM_CORE.md](DIFFERENCES_FROM_CORE.md) in the same commit: add a row to the Feature, Packaging or Test section saying what changed, in which files, and why. That file is how the changes get re-applied when re-basing on a newer core version.
 - **No personal data in repo files.** The repo is public. Docs, tests, fixtures and commit messages use sample labels only (Parent1, Parent2, Child1, Child2, Medical, Everyone), never real label names, people's names, schools, calendar or entity IDs, or email addresses. The dev HA is connected to a real calendar: data read from it can be shown in chat, but goes into files only in this generic form. Check docs for real names before committing.
 - **Never commit `config/`** other than `config/configuration.yaml`. It holds the dev HA's real Google credentials and data, and git ignores it.
 
 ## Commands
 
-- `scripts/setup`: install the dev requirements (pinned to core's versions at 2026.10.1).
+- `scripts/setup`: install the dev requirements (pinned to core's versions at 2026.11.0).
 - `scripts/develop`: run the dev HA on port 8123, using `config/`.
 - `scripts/lint`: `ruff format` and `ruff check --fix`. The repo uses ruff, not black (CONTRIBUTING.md is out of date).
 - `python3 -m pytest`: run the tests (core's google tests, ported, plus `test_colours.py`).

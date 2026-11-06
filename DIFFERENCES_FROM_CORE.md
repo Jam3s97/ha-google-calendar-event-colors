@@ -6,14 +6,14 @@ This file lists every way `custom_components/google/` (and its tests) differs fr
 
 | | |
 |--|--|
-| Core version | `2026.10.1` |
-| Source | [`homeassistant/components/google`](https://github.com/home-assistant/core/tree/2026.10.1/homeassistant/components/google) and [`tests/components/google`](https://github.com/home-assistant/core/tree/2026.10.1/tests/components/google) |
-| Unmodified copy | commit `6ce6cd2` |
+| Core version | `2026.11.0` |
+| Source | [`homeassistant/components/google`](https://github.com/home-assistant/core/tree/2026.11.0/homeassistant/components/google) and [`tests/components/google`](https://github.com/home-assistant/core/tree/2026.11.0/tests/components/google) |
+| Unmodified copy | commit `2555cde` (the previous base, 2026.10.1, was `6ce6cd2`) |
 
 To see the full diff against core:
 
 ```sh
-git diff 6ce6cd2 -- custom_components/google tests/components/google
+git diff 2555cde -- custom_components/google tests/components/google
 ```
 
 ## Feature changes
@@ -40,7 +40,8 @@ Creating an event on a colour entity gives it that entity's label in Google. Cor
 |--|--|
 | `api.py` | **New** `LabelCalendarService`, a `GoogleCalendarService` subclass. Its `async_create_event` posts the same body as gcal_sync, plus `params={"eventLabelVersion": "1"}`, when the event has `event_label_id`; otherwise it calls gcal_sync unchanged. It keeps its own reference to the auth object rather than using gcal_sync's private `_auth`. Check it when upgrading gcal_sync, and drop it if gcal_sync adds the parameter. |
 | `__init__.py` | `async_setup_entry` creates a `LabelCalendarService` instead of a `GoogleCalendarService`. |
-| `calendar.py` | `GoogleCalendarEntity` gets a `new_event_label_id` property (None, so core behaviour is unchanged). The entity's `async_create_event` and the `google.create_event` action set it as the new event's `event_label_id`. `GoogleCalendarColourEntity` returns its label, except for Other and the default colour's entity, which write no label so the event follows the calendar's default colour. Colour entities are writable when the real calendar is, except Other when the calendar's colour matches a label (an uncoloured event would land on that label's entity, not Other). Delete is core's, on the shared coordinator. Core has no update-event support, so there is none here either. |
+| `calendar.py` | `GoogleCalendarEntity` gets a `new_event_label_id` property (None, so core behaviour is unchanged). The entity's `async_create_event` sets it as the new event's `event_label_id`. `GoogleCalendarColourEntity` returns its label, except for Other and the default colour's entity, which write no label so the event follows the calendar's default colour. Colour entities are writable when the real calendar is, except Other when the calendar's colour matches a label (an uncoloured event would land on that label's entity, not Other). Delete is core's, on the shared coordinator. Core has no update-event support, so there is none here either. |
+| `services.py` | The `google.create_event` action sets the entity's `new_event_label_id` as the new event's `event_label_id`. (Core moved the action here from `calendar.py` in 2026.11.0.) |
 
 ### Prompting the user to name colours
 
@@ -75,7 +76,7 @@ These changes make core's code run as a custom integration. They don't change ho
 | File | Change | Why |
 |--|--|--|
 | `manifest.json` | `name` is "Google Calendar (event colours)". Adds `version` and `issue_tracker`, and points `documentation` and `codeowners` at this repo. | Hassfest requires these for custom integrations. |
-| `manifest.json` | Sets the integration version to `1.0.0`. | Marks the first stable release after production use and feature/test validation. |
+| `manifest.json` | Sets the integration version (`1.1.0`). | HACS and the Marketplace show it, and hassfest requires it. |
 | `manifest.json` | `requirements` uses ranges such as `gcal-sync>=9.2.0,<10` instead of core's `==` pins. | Hassfest rejects exact pins on packages Home Assistant depends on. The `<next major` cap blocks untested breaking releases. The dev and CI requirements still use core's exact versions. |
 | `translations/en.json` | Added. Generated from `strings.json` with the `[%key:...%]` references filled in from core's `homeassistant/strings.json`. | Core builds this file at release time, but a custom integration only loads `translations/`. |
 | `strings.json`, `quality_scale.yaml` | Kept as files. `quality_scale.yaml` is unchanged. `strings.json` only changes for features listed above, and `translations/en.json` is regenerated from it. | Kept as a reference for diffing against core. Home Assistant ignores both files for a custom integration. |
@@ -84,7 +85,7 @@ These changes make core's code run as a custom integration. They don't change ho
 
 | File | Change | Why |
 |--|--|--|
-| `tests/components/google/*.py` | `homeassistant.components.google` becomes `custom_components.google`, in imports and in `patch()` targets. `tests.*` helpers become `pytest_homeassistant_custom_component.*`. Imports re-sorted by ruff. | The tests have to run outside core. |
+| `tests/components/google/*.py` | `homeassistant.components.google` becomes `custom_components.google`, in imports and in `patch()` targets. Core's test helpers (`pytest_homeassistant.*` since 2026.11.0, `tests.*` before) become `pytest_homeassistant_custom_component.*`. Imports re-sorted by ruff. | The tests have to run outside core. |
 | `tests/conftest.py`, `pytest.ini`, `tests/__init__.py`, `tests/components/__init__.py` | Added. | They turn on custom integrations and asyncio mode for pytest. |
 | `tests/conftest.py` | Defines the `snapshot` fixture with `HomeAssistantSnapshotExtension`, as core's `tests/conftest.py` does. | pytest-homeassistant-custom-component sets this from a plugin, so it only applies if that plugin loads after syrupy. In CI syrupy loaded last, looked in `__snapshots__/` and failed `test_diagnostics` with "Snapshot does not exist". |
 | `tests/ruff.toml` | Core's test ruff config, with first-party packages adjusted. | Matches how core lints its tests. |
@@ -92,11 +93,17 @@ These changes make core's code run as a custom integration. They don't change ho
 
 ## Upgrading to a new core version
 
-1. Clone core at the new tag into `../ha-core-ref`.
-2. See what changed upstream since the base:
+The unmodified copies form a side branch: each one is core's files at a tag, committed on top of the previous copy. Merging the new copy into this branch makes git apply core's upstream changes to the modified files, so only real conflicts need resolving. (Used for 2026.11.0.)
+
+1. Export core's files at the new tag, for example with a blobless clone: `git fetch --depth 1 --filter=blob:none origin refs/tags/<tag>:refs/tags/<tag>`, then `git archive <tag> homeassistant/components/google tests/components/google`.
+2. Make the new unmodified copy on top of the current base, byte for byte:
    ```sh
-   git worktree add ../ha-base 6ce6cd2
-   diff -r ../ha-base/custom_components/google ../ha-core-ref/homeassistant/components/google
+   git worktree add -b core/<tag> ../ha-base <current base>
+   # in ../ha-base: replace custom_components/google and tests/components/google with core's files
+   git commit -am "Import core google integration from HA <tag> (unmodified)"
    ```
-3. Copy the new core files in as a fresh "unmodified" commit, then re-apply every change listed above.
-4. Update this file's **Base** section, the version pins in `requirements_dev.txt` and `hacs.json`, and the `pytest-homeassistant-custom-component` version.
+3. Merge it into a working branch: `git merge --no-ff core/<tag>`. Resolve conflicts by keeping core's change and re-applying ours as listed above.
+4. In the tests, rename core's test helper imports (`pytest_homeassistant.*`) and `homeassistant.components.google` as described under **Test changes**. New core test code arrives through the merge, so check the whole files, not only the conflicts.
+5. Regenerate `translations/en.json` from `strings.json`, filling the `[%key:...%]` references from core's `homeassistant/strings.json` at the new tag.
+6. Update this file's **Base** section, the version pins in `requirements_dev.txt` (Home Assistant, the integration's requirements, and the `pytest-homeassistant-custom-component` release that pins that Home Assistant version), `hacs.json`, and `CLAUDE.md`.
+7. Merge the pull request with a merge commit, not squash or rebase, so the unmodified copy stays in the history.
