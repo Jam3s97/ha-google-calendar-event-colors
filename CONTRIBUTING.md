@@ -6,7 +6,7 @@ Bug reports, questions and pull requests are welcome. This is a small, personal 
 
 [Open an issue](../../issues/new/choose) using the bug template. Helpful details:
 
-- Your Home Assistant version (this release is built for 2026.10.1).
+- Your Home Assistant version (this release is built for 2026.11.0).
 - What you did, what you expected, and what happened.
 - Debug logs. Add this to `configuration.yaml`, restart and reproduce:
 

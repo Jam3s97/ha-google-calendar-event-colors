@@ -1,27 +1,27 @@
 # Google Calendar (event colours)
 
-A custom version of Home Assistant's built-in Google Calendar (`google`) integration. It is based on the core integration at Home Assistant **2026.10.1** and overrides the built-in one when installed. It adds one virtual calendar entity per Google event colour, so dashboard calendar cards can colour events per person or purpose while you keep using a single shared Google calendar.
+A custom version of Home Assistant's built-in Google Calendar (`google`) integration. It is based on the core integration at Home Assistant **2026.11.0** and overrides the built-in one when installed. It adds one virtual calendar entity per Google event colour, so dashboard calendar cards can colour events per person or purpose while you keep using a single shared Google calendar.
 
 > [!WARNING]
 > **Use at your own risk.** The event colour features (everything listed in [DIFFERENCES_FROM_CORE.md](DIFFERENCES_FROM_CORE.md)) were written by Claude, Anthropic's AI model, using Claude Code. [@Jam3s97](https://github.com/Jam3s97) reviewed and tested them. The rest is Home Assistant's own Google Calendar integration. This project isn't affiliated with or supported by Home Assistant or Google. It can create and delete events in your Google calendars.
 
-**Status:** version 1.0.0. Tested in a development Home Assistant 2026.10.1 against real Google calendars (splitting, creating and deleting events, the Repairs issue), plus automated tests, and running on one production Home Assistant 2026.10.1 with the Daylight Calendar Card. The design and the findings behind it are in [plan.md](plan.md).
+**Status:** version 1.1.0, re-based on core's 2026.11.0 code. Version 1.0.0 (core's 2026.10.1 code) was tested in a development Home Assistant 2026.10.1 against real Google calendars (splitting, creating and deleting events, the Repairs issue), plus automated tests, and running on one production Home Assistant 2026.10.1 with the Daylight Calendar Card. The design and the findings behind it are in [plan.md](plan.md).
 
 ## Installation
 
 Requirements:
 
-- **Home Assistant 2026.10.0 or later.** This replaces the built-in integration with core's 2026.10.1 code plus the colour features. Core's Google integration is the same in 2026.10.0 to 2026.10.2, and the tests pass on all three. HACS won't install it on older versions, where it couldn't load (it needs calendar features added in 2026.10.0). Later Home Assistant releases may change core's Google integration; this project is re-based on them deliberately, and a weekly CI job flags when that's needed.
+- **Home Assistant 2026.11.0 or later.** This replaces the built-in integration with core's 2026.11.0 code plus the colour features, and it needs Home Assistant features added in 2026.11.0. On Home Assistant 2026.10.x, use version **1.0.0**: HACS still offers the newer version as an update there but refuses to install it ("This version requires Home Assistant 2026.11.0 or newer"), and for a new install you have to pick 1.0.0 from the version list. Version 1.0.0 also keeps working after you upgrade Home Assistant to 2026.11, so you can update this integration afterwards. Later Home Assistant releases may change core's Google integration; this project is re-based on them deliberately, and a weekly CI job flags when that's needed.
 - The Google Calendar integration set up as usual (see [Home Assistant's Google Calendar docs](https://www.home-assistant.io/integrations/google/)). Your existing config entry and entities are reused.
 - To create events, the integration needs **read/write** access: **Settings > Devices & services > Google Calendar > Configure**.
 
 Steps:
 
-1. In HACS, add this repository as a custom repository (category: Integration).
-2. Install **Google Calendar (event colours)** and restart Home Assistant.
+1. In the Marketplace (HACS before Home Assistant 2026.11), add this repository as a custom repository (category: Integration).
+2. Install **Google Calendar (event colours)** and restart Home Assistant. The Marketplace asks you to confirm that it replaces the built-in `google` integration.
 3. Home Assistant will log a warning that a custom integration overrides the built-in `google` integration. This is expected.
 
-To go back to the built-in integration, remove it in HACS and restart. Your Google Calendar config entry keeps working; delete the colour entities that are left behind (they show as unavailable).
+To go back to the built-in integration, remove it in the Marketplace (or HACS) and restart. Your Google Calendar config entry keeps working; delete the colour entities that are left behind (they show as unavailable).
 
 ## Splitting a calendar by colour
 
@@ -121,7 +121,7 @@ Home Assistant's create-event dialog has no colour field, so **choose the colour
 
 ## Relationship to core
 
-`custom_components/google/` was copied from [home-assistant/core](https://github.com/home-assistant/core/tree/2026.10.1/homeassistant/components/google) at tag `2026.10.1`. Commit `6ce6cd2` holds that copy unchanged, so `git diff 6ce6cd2 -- custom_components/google` shows everything this project changes.
+`custom_components/google/` is [home-assistant/core](https://github.com/home-assistant/core/tree/2026.11.0/homeassistant/components/google)'s integration at tag `2026.11.0`. Commit `2555cde` holds that copy unchanged, so `git diff 2555cde -- custom_components/google` shows everything this project changes.
 
 Every difference from core, and why it was made, is listed in [DIFFERENCES_FROM_CORE.md](DIFFERENCES_FROM_CORE.md), along with the steps for upgrading to a new core version.
 
@@ -131,11 +131,11 @@ Every difference from core, and why it was made, is listed in [DIFFERENCES_FROM_
 - **HACS validation** ignores `brands`, since this repo has no brand images. It also checks GitHub repository settings: the repo needs a description and topics.
 - **Lint** (ruff) and **Test** (pytest) run on every push and pull request.
 - **Latest Home Assistant** runs weekly as an early warning that the integration needs re-basing before you upgrade. It fails if core's Google integration changed between the base version (the `homeassistant` pin in `requirements_dev.txt`) and the latest stable Home Assistant, with the diff in the run summary, and it runs the tests against the latest stable Home Assistant. It doesn't block anything.
-- **Renovate** keeps dependencies up to date, except Home Assistant and the integration's own requirements (gcal-sync, ical, oauth2client, pytest-homeassistant-custom-component), which are pinned to core's versions and change only when re-basing.
+- **Renovate** keeps dependencies up to date, except Home Assistant and the integration's own requirements (gcal-sync, ical, oauth2client, pytest-homeassistant), which are pinned to core's versions and change only when re-basing.
 
 ## Development
 
-Open the repo in the devcontainer and run `scripts/develop` to start a dev Home Assistant (2026.10.1) on port 8123. Run the tests with `python3 -m pytest`.
+Open the repo in the devcontainer and run `scripts/develop` to start a dev Home Assistant (2026.11.0) on port 8123. It links `custom_components/google` into `config/custom_components/`, where Home Assistant loads it from. Run the tests with `python3 -m pytest`.
 
 This repository was scaffolded from [ludeeus/integration_blueprint](https://github.com/ludeeus/integration_blueprint).
 
