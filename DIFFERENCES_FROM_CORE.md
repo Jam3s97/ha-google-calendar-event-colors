@@ -69,6 +69,24 @@ Some cards (for example the Daylight Calendar Card) set a colour per entity in t
 
 Known limitation: a colour entity's state (the current/next event) only looks at the calendar's next 20 upcoming events (core's `MAX_UPCOMING_EVENTS`), so a colour with no event among them shows as off. Event lists from `async_get_events` (which cards use) are not affected.
 
+### Re-syncing events stored without labels
+
+gcal_sync started reading `eventLabelId` without changing its store version (`VERSION = 2` in `gcal_sync/sync.py`), and sync only fetches changed events. So events stored by an older gcal_sync (for example by core's integration before switching to this one) never get their label until edited in Google. Those in the 13 newer colours have no `colorId` either, so they were bucketed as uncoloured: on the default colour's entity, or on Other. Core is unaffected because it doesn't use labels.
+
+| File | Change |
+|--|--|
+| `store.py` | `reset_stale_event_syncs()` clears the sync token and stored events of any calendar with a stored event that has no `event_label_id` key (current gcal_sync always writes it), as gcal_sync does for an invalid token, so the next sync fetches everything again. `LocalCalendarStore.async_load` runs it when the store is first loaded and logs how many calendars it reset. It only fires once per calendar, because re-synced events all have the key. Drop it if gcal_sync bumps its store version for labels. |
+
+### Colour diagnostics
+
+Core's diagnostics show each event's `color_id` and `event_label_id`, but not the calendar's labels or colour, or where events went, so a report of events landing on the wrong entity can't be checked from them.
+
+| File | Change |
+|--|--|
+| `colours.py` | `ColourSplit.classify()` returns an event's bucket and the reason it's there (`REASON_*`: label, `colorId`, default colour, or for Other: unknown label, `colorId` with no label, or no colour on a calendar whose colour matches no label). `bucket()` uses it. `ColourSplit` keeps the calendar's colour as `calendar_background_color`. |
+| `store.py`, `calendar.py` | `GoogleRuntimeData.split_calendars` holds each split calendar's `ColourSplit`, coordinator and store key (a `SplitCalendar`), set by `_async_colour_entities()`. |
+| `diagnostics.py` | When any calendar is split, adds `colour_splits`: for each one, its `calendar#N` in `store`, the calendar's colour, the default colour's label, each label's id, colour and whether it's named (never the name, which can identify people), the number of stored events without an `event_label_id` key, and event counts per bucket and per reason over the scan window. Core's output is unchanged when nothing is split. |
+
 ## Packaging changes
 
 These changes make core's code run as a custom integration. They don't change how it behaves.
@@ -89,7 +107,7 @@ These changes make core's code run as a custom integration. They don't change ho
 | `tests/conftest.py`, `pytest.ini`, `tests/__init__.py`, `tests/components/__init__.py` | Added. | They set asyncio mode for pytest, and `-p no:respx` so Home Assistant's httpx alias is installed before respx is imported (as `pytest-homeassistant`'s README asks). |
 | `tests/conftest.py` | Defines the `snapshot` fixture with `HomeAssistantSnapshotExtension`, as core's `tests/conftest.py` does. | pytest-homeassistant sets this from a plugin, so it only applies if that plugin loads after syrupy. In CI syrupy loaded last, looked in `__snapshots__/` and failed `test_diagnostics` with "Snapshot does not exist". |
 | `tests/ruff.toml` | Core's test ruff config, with first-party packages adjusted. | Matches how core lints its tests. |
-| `tests/components/google/test_colours.py` | **New.** Tests for the colour split rule, the colour entities, rename stability, stale-entity clean-up, the options flow, creating (label in the body, `eventLabelVersion=1` in the URL only when writing a label) and deleting events on colour entities, unnamed-colour detection, the Repairs issue (including that an ignored issue returns for a new colour) and its fix flow, the options flow's unnamed-colours step, the "Don't remind me" option, an unnamed default colour, when Other is created or removed, and the `color` attribute. | Tests for the colour entities. |
+| `tests/components/google/test_colours.py` | **New.** Tests for the colour split rule, the colour entities, rename stability, stale-entity clean-up, the options flow, creating (label in the body, `eventLabelVersion=1` in the URL only when writing a label) and deleting events on colour entities, unnamed-colour detection, the Repairs issue (including that an ignored issue returns for a new colour) and its fix flow, the options flow's unnamed-colours step, the "Don't remind me" option, an unnamed default colour, when Other is created or removed, the `color` attribute, the reason each event is in its bucket, re-syncing events stored without a label field, and the colour diagnostics. | Tests for the colour entities. |
 
 ## Upgrading to a new core version
 

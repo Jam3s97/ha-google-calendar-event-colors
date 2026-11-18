@@ -68,7 +68,7 @@ from .colours import (
 )
 from .const import CONF_IGNORE_UNNAMED_COLOURS, CONF_SPLIT_CALENDARS, FeatureAccess
 from .coordinator import CalendarQueryUpdateCoordinator, CalendarSyncUpdateCoordinator
-from .store import GoogleConfigEntry
+from .store import GoogleConfigEntry, SplitCalendar
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -624,6 +624,9 @@ async def _async_colour_entities(
     except ApiException as err:
         raise PlatformNotReady(str(err)) from err
     split = ColourSplit(calendar, calendar_item.background_color)
+    config_entry.runtime_data.split_calendars[calendar_item.id] = SplitCalendar(
+        split=split, coordinator=coordinator, store_key=parent_unique_id
+    )
     unique_id_prefix = f"{parent_unique_id}{COLOUR_UNIQUE_ID_MARKER}"
 
     def build(bucket: str, label: ColourLabel | None) -> GoogleCalendarColourEntity:
