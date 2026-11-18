@@ -2,6 +2,7 @@
 
 import datetime
 from http import HTTPStatus
+import json
 from typing import Any
 from unittest.mock import patch
 import urllib
@@ -10,12 +11,23 @@ from gcal_sync.auth import API_BASE_URL
 from gcal_sync.model import CalendarBasic, Event
 import pytest
 
-from custom_components.google.colours import OTHER, ColourSplit, unnamed_colours_in_use
+from custom_components.google.colours import (
+    OTHER,
+    REASON_COLOR_ID,
+    REASON_CUSTOM_CALENDAR_COLOUR,
+    REASON_DEFAULT_COLOUR,
+    REASON_LABEL,
+    REASON_UNKNOWN_LABEL,
+    REASON_UNMAPPED_COLOR_ID,
+    ColourSplit,
+    unnamed_colours_in_use,
+)
 from custom_components.google.const import (
     CONF_IGNORE_UNNAMED_COLOURS,
     CONF_SPLIT_CALENDARS,
     DOMAIN,
 )
+from custom_components.google.store import reset_stale_event_syncs
 from homeassistant.components.calendar import CalendarEntityFeature
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import HomeAssistant
@@ -24,6 +36,7 @@ from homeassistant.helpers import entity_registry as er, issue_registry as ir
 from homeassistant.setup import async_setup_component
 from homeassistant.util import dt as dt_util
 from pytest_homeassistant.common import MockConfigEntry, async_fire_time_changed
+from pytest_homeassistant.components.diagnostics import get_diagnostics_for_config_entry
 from pytest_homeassistant.test_util.aiohttp import AiohttpClientMocker
 from pytest_homeassistant.typing import ClientSessionGenerator, WebSocketGenerator
 
@@ -153,6 +166,29 @@ def test_bucket_custom_calendar_colour() -> None:
     split = split_for("Everyone", calendar_color="#123456")
     assert split.default_label is None
     assert bucket_of(split, event("no-colour", 1)) == OTHER
+
+
+def test_classify_reasons() -> None:
+    """Test each bucket comes with the reason the event is in it."""
+    split = split_for("Everyone")
+    assert [split.classify(Event(**raw)) for raw in EVENTS] == [
+        (LABEL_CHILD1, REASON_LABEL),
+        (LABEL_MEDICAL, REASON_COLOR_ID),
+        (LABEL_BASIL, REASON_DEFAULT_COLOUR),
+        (LABEL_RADICCHIO, REASON_LABEL),
+        (LABEL_BASIL, REASON_LABEL),
+        (OTHER, REASON_UNKNOWN_LABEL),
+    ]
+    # Grape (colorId 3) has no label on this calendar
+    assert split.classify(Event(**event("grape", 1, colorId="3"))) == (
+        OTHER,
+        REASON_UNMAPPED_COLOR_ID,
+    )
+    custom = split_for("Everyone", calendar_color="#123456")
+    assert custom.classify(Event(**event("no-colour", 1))) == (
+        OTHER,
+        REASON_CUSTOM_CALENDAR_COLOUR,
+    )
 
 
 def test_label_metadata() -> None:
@@ -871,3 +907,152 @@ async def test_ignore_from_fix_flow_removes_issue(
 
     assert config_entry.state is ConfigEntryState.LOADED
     assert google_issues(hass) == []
+
+
+def stored_event(raw: dict[str, Any], *, with_label_field: bool) -> dict[str, Any]:
+    """Return an event as gcal_sync stores it, optionally as an old version did."""
+    item = json.loads(Event(**raw).model_dump_json())
+    if not with_label_field:
+        del item["event_label_id"]
+    return item
+
+
+def sync_data(*items: dict[str, Any]) -> dict[str, Any]:
+    """Return a calendar's stored sync data."""
+    return {
+        "items": {item["id"]: item for item in items},
+        "sync_token": "old-sync-token",
+        "sync_token_version": 2,
+    }
+
+
+def test_reset_stale_event_syncs() -> None:
+    """Test only calendars with events stored without the label field are reset."""
+    old = stored_event(event("old", 1), with_label_field=False)
+    new = stored_event(event("new", 1), with_label_field=True)
+    data = {
+        "stale": {"event_sync": {"stale-calendar": sync_data(new, old)}},
+        "fresh": {"event_sync": {"fresh-calendar": sync_data(new)}},
+    }
+    assert reset_stale_event_syncs(data) == 1
+    assert data["stale"]["event_sync"]["stale-calendar"] == {
+        "items": {},
+        "sync_token": None,
+        "sync_token_version": 2,
+    }
+    assert data["fresh"]["event_sync"]["fresh-calendar"] == sync_data(new)
+    assert reset_stale_event_syncs(data) == 0
+
+
+async def test_stale_store_resyncs_labels(
+    hass: HomeAssistant,
+    hass_client: ClientSessionGenerator,
+    hass_storage: dict[str, Any],
+    aioclient_mock: AiohttpClientMocker,
+    config_entry: MockConfigEntry,
+    mock_calendar_get,
+    mock_events_list_items,
+    component_setup: ComponentSetup,
+) -> None:
+    """Test events stored before gcal_sync read labels are fetched again.
+
+    The stored copy of the Radicchio event has no label and no colorId, so it
+    would land on the default colour's entity until edited in Google.
+    """
+    stale = stored_event(event("radicchio-label-only", 4), with_label_field=False)
+    hass_storage[f"{DOMAIN}.{config_entry.entry_id}"] = {
+        "version": 1,
+        "minor_version": 1,
+        "key": f"{DOMAIN}.{config_entry.entry_id}",
+        "data": {PARENT_UNIQUE_ID: {"event_sync": {CALENDAR_ID: sync_data(stale)}}},
+    }
+    mock_calendar_get(CALENDAR_ID, calendar_labels())
+    mock_events_list_items(
+        [event("radicchio-label-only", 4, eventLabelId=LABEL_RADICCHIO)]
+    )
+    assert await component_setup()
+
+    event_requests = [
+        url
+        for method, url, *_ in aioclient_mock.mock_calls
+        if url.path.endswith("/events")
+    ]
+    assert event_requests
+    assert all("syncToken" not in url.query for url in event_requests)
+    assert await get_event_summaries(hass_client, f"{TEST_API_ENTITY}_radicchio") == [
+        "radicchio-label-only"
+    ]
+    assert await get_event_summaries(hass_client, f"{TEST_API_ENTITY}_everyone") == []
+
+
+async def test_diagnostics_colour_splits(
+    hass: HomeAssistant,
+    hass_client: ClientSessionGenerator,
+    config_entry: MockConfigEntry,
+    mock_calendar_get,
+    mock_events_list_items,
+    component_setup: ComponentSetup,
+) -> None:
+    """Test diagnostics show how events are bucketed, without label names."""
+    mock_calendar_get(CALENDAR_ID, calendar_labels())
+    mock_events_list_items(EVENTS)
+    assert await component_setup()
+
+    data = await get_diagnostics_for_config_entry(hass, hass_client, config_entry)
+    assert data["colour_splits"] == [
+        {
+            "store": "calendar#1",
+            "calendar_color": "#16a765",
+            "default_label": LABEL_BASIL,
+            "labels": [
+                {
+                    "id": LABEL_CHILD1,
+                    "background_color": "#f6bf26",
+                    "colour": "Banana",
+                    "named": True,
+                },
+                {
+                    "id": LABEL_MEDICAL,
+                    "background_color": "#039be5",
+                    "colour": "Peacock",
+                    "named": True,
+                },
+                {
+                    "id": LABEL_BASIL,
+                    "background_color": "#0b8043",
+                    "colour": "Basil",
+                    "named": True,
+                },
+                {
+                    "id": LABEL_RADICCHIO,
+                    "background_color": "#ad1457",
+                    "colour": "Radicchio",
+                    "named": False,
+                },
+                {
+                    "id": LABEL_TOMATO,
+                    "background_color": "#d50000",
+                    "colour": "Tomato",
+                    "named": False,
+                },
+            ],
+            "stored_events_without_label_field": 0,
+            "events": {
+                "buckets": {
+                    LABEL_CHILD1: 1,
+                    LABEL_BASIL: 2,
+                    LABEL_MEDICAL: 1,
+                    LABEL_RADICCHIO: 1,
+                    OTHER: 1,
+                },
+                "reasons": {
+                    REASON_COLOR_ID: 1,
+                    REASON_DEFAULT_COLOUR: 1,
+                    REASON_LABEL: 3,
+                    REASON_UNKNOWN_LABEL: 1,
+                },
+            },
+        }
+    ]
+    # Label names can identify people, so they're left out
+    assert "Child1" not in json.dumps(data["colour_splits"])

@@ -25,6 +25,17 @@ from gcal_sync.timeline import Timeline
 
 OTHER: Final = "other"
 
+# Why an event is in its bucket, shown in diagnostics
+REASON_LABEL: Final = "label"
+REASON_COLOR_ID: Final = "color_id"
+REASON_DEFAULT_COLOUR: Final = "default_colour"
+REASON_UNKNOWN_LABEL: Final = "unknown_label"
+"""Other: the event's label isn't one of this calendar's labels."""
+REASON_UNMAPPED_COLOR_ID: Final = "unmapped_color_id"
+"""Other: the event's colorId matches none of this calendar's labels."""
+REASON_CUSTOM_CALENDAR_COLOUR: Final = "custom_calendar_colour"
+"""Other: the event has no colour and the calendar's colour matches no label."""
+
 # Window scanned for colours in use: matches the sync window's start (core
 # syncs from 90 days ago) and looks a year ahead.
 SCAN_START: Final = datetime.timedelta(days=-90)
@@ -229,6 +240,7 @@ class ColourSplit:
         self, calendar: CalendarBasic, calendar_background_color: str | None
     ) -> None:
         """Build the split from the calendar's labels and its default colour."""
+        self.calendar_background_color = calendar_background_color
         self.labels: dict[str, ColourLabel] = {}
         label_properties = calendar.label_properties
         for label in label_properties.event_labels if label_properties else []:
@@ -262,14 +274,22 @@ class ColourSplit:
 
     def bucket(self, event: Event) -> str:
         """Return the label id the event belongs to, or OTHER."""
+        return self.classify(event)[0]
+
+    def classify(self, event: Event) -> tuple[str, str]:
+        """Return the event's bucket and the reason (a REASON_* value) it's there."""
         if event.event_label_id:
-            return (
-                event.event_label_id if event.event_label_id in self.labels else OTHER
-            )
+            if event.event_label_id in self.labels:
+                return event.event_label_id, REASON_LABEL
+            return OTHER, REASON_UNKNOWN_LABEL
         if event.color_id:
             label = self._label_by_color_id.get(event.color_id)
-            return label.id if label else OTHER
-        return self.default_label.id if self.default_label else OTHER
+            if label:
+                return label.id, REASON_COLOR_ID
+            return OTHER, REASON_UNMAPPED_COLOR_ID
+        if self.default_label:
+            return self.default_label.id, REASON_DEFAULT_COLOUR
+        return OTHER, REASON_CUSTOM_CALENDAR_COLOUR
 
 
 @dataclass(frozen=True, kw_only=True)
