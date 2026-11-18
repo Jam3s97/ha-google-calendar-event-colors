@@ -1,7 +1,13 @@
 {
     "name": "Jam3s97/ha-google-calendar-event-colors",
     "image": "mcr.microsoft.com/devcontainers/base:debian",
-    "postCreateCommand": "scripts/setup",
+    "mounts": [
+        "source=claude-code-config-${devcontainerId},target=/home/vscode/.claude,type=volume"
+    ],
+    "containerEnv": {
+        "CLAUDE_CONFIG_DIR": "/home/vscode/.claude"
+    },
+    "postCreateCommand": "sudo chown -R vscode:vscode /home/vscode/.claude && scripts/setup",
     "forwardPorts": [
         8123
     ],
